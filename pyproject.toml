@@ -1,0 +1,45 @@
+[project]
+name = "agent-evals"
+version = "0.1.0"
+description = "Evaluate LLM agents against versioned test cases: metrics, model comparison and CI gating."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Juan Martínez Jiménez" }]
+requires-python = ">=3.13"
+dependencies = [
+  "jsonschema>=4.26",
+  "pydantic>=2.14",
+  "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+agent-evals = "agent_evals.cli:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=2.4",
+  "pytest>=9.1",
+  "ruff>=0.17",
+  "types-jsonschema>=4.26",
+  "types-pyyaml>=6.0.12",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
