@@ -6,6 +6,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `agent-evals compare BASE HEAD`: compares two `run --json` reports case by case and lists regressions, fixes, added and removed cases with the change in pass rate, latency and cost. Exits 1 when any case that passed now fails ([ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md)).
+- `compare --markdown` writes the comparison as a Markdown report.
+- Example recording `recording-new-prompt.yaml` for ticket classification: same 9/10 pass rate, one regression.
+
+### Fixed
+
+- `run` no longer crashes with `UnicodeEncodeError` on Windows when its output is redirected to a file or a pipe.
+
 ## [0.2.0] - 2026-10-19
 
 ### Added
