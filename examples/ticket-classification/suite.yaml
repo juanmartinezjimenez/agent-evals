@@ -1,0 +1,57 @@
+name: ticket-classification
+description: Route support tickets to the right queue. All tickets are synthetic.
+threshold: 0.9
+system: |
+  You are a support triage assistant. Read the ticket and answer with exactly one
+  word: billing, technical, account or shipping. No punctuation, no explanation.
+
+cases:
+  - id: double-charge
+    input: I was charged twice for my March subscription, please refund one of them.
+    expect: { type: exact, value: billing }
+    tags: [billing]
+
+  - id: invoice-copy
+    input: Could you send me a copy of last month's invoice with my company tax ID on it?
+    expect: { type: exact, value: billing }
+    tags: [billing]
+
+  - id: app-crash
+    input: The mobile app closes as soon as I open the calendar screen. Android 15.
+    expect: { type: exact, value: technical }
+    tags: [technical]
+
+  - id: sync-error
+    input: My contacts stopped syncing yesterday, I get error 503 every time I try.
+    expect: { type: exact, value: technical }
+    tags: [technical]
+
+  - id: password-reset
+    input: I never receive the password reset email, can you help me get back in?
+    expect: { type: exact, value: account }
+    tags: [account, ambiguous]
+
+  - id: change-email
+    input: I want to change the email address linked to my profile.
+    expect: { type: exact, value: account }
+    tags: [account]
+
+  - id: delete-account
+    input: Please delete my account and all the data you hold about me.
+    expect: { type: exact, value: account }
+    tags: [account]
+
+  - id: late-parcel
+    input: My order was due on Monday and the tracking hasn't moved for four days.
+    expect: { type: exact, value: shipping }
+    tags: [shipping]
+
+  - id: wrong-address
+    input: I typed the wrong postcode at checkout, can the delivery address still be changed?
+    expect: { type: exact, value: shipping }
+    tags: [shipping, ambiguous]
+
+  - id: refund-damaged
+    input: The parcel arrived crushed and the item is broken. I'd like my money back.
+    expect: { type: exact, value: billing }
+    tags: [billing, ambiguous]

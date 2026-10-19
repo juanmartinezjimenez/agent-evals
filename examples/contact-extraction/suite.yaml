@@ -1,0 +1,54 @@
+name: contact-extraction
+description: Extract structured contact requests from free-text messages. All people are fictional.
+threshold: 0.8
+system: |
+  Extract the sender's name, email and intent from the message.
+  Answer only with JSON: {"name": string, "email": string | null, "intent": "quote" | "booking" | "complaint" | "other"}.
+
+cases:
+  - id: quote-request
+    input: Hi, I'm Laura Pérez (laura.perez@example.com). Could you send me a quote for 20 units?
+    expect:
+      type: json_schema
+      schema: &contact
+        type: object
+        required: [name, email, intent]
+        additionalProperties: false
+        properties:
+          name: { type: string, minLength: 1 }
+          email: { type: [string, "null"] }
+          intent: { enum: [quote, booking, complaint, other] }
+      fields: { name: Laura Pérez, email: laura.perez@example.com, intent: quote }
+    tags: [quote]
+
+  - id: booking-no-email
+    input: This is Marc Soler, I'd like to book a table for four on Friday at 9pm.
+    expect:
+      type: json_schema
+      schema: *contact
+      fields: { name: Marc Soler, email: null, intent: booking }
+    tags: [booking, missing-field]
+
+  - id: complaint
+    input: "From: Ana Ruiz <ana.ruiz@example.org> — the order arrived late again, this is the third time."
+    expect:
+      type: json_schema
+      schema: *contact
+      fields: { name: Ana Ruiz, email: ana.ruiz@example.org, intent: complaint }
+    tags: [complaint]
+
+  - id: fenced-json
+    input: Hello, Hugo here (hugo@example.net). Just saying thanks for the quick help!
+    expect:
+      type: json_schema
+      schema: *contact
+      fields: { name: Hugo, email: hugo@example.net, intent: other }
+    tags: [other, formatting]
+
+  - id: two-people
+    input: My colleague Irene will call you, but I'm the one asking — Pablo Gil, pablo.gil@example.com, we need a quote.
+    expect:
+      type: json_schema
+      schema: *contact
+      fields: { name: Pablo Gil, email: pablo.gil@example.com, intent: quote }
+    tags: [quote, ambiguous]
