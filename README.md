@@ -107,6 +107,32 @@ flowchart LR
   rec -- --replay --> ci[CI on every push<br/>deterministic, free]
 ```
 
+### Comparing two runs
+
+A pass rate can hide regressions: a prompt change that fixes one case and breaks
+another scores the same. `compare` matches cases by id and fails if any case that
+passed in the base run fails in the head run
+([ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md)).
+
+```console
+$ agent-evals run examples/ticket-classification/suite.yaml \
+    --replay examples/ticket-classification/recording.yaml --json base.json
+$ agent-evals run examples/ticket-classification/suite.yaml \
+    --replay examples/ticket-classification/recording-new-prompt.yaml --json head.json
+$ agent-evals compare base.json head.json --markdown compare.md
+FAIL ticket-classification: 1 regression, 1 fix · pass rate 90% → 90% (+0 pp) · replay → replay · latency mean 0.0 → 0.0 ms, p95 0.0 → 0.0 ms
+  ✗ wrong-address: expected 'shipping', got 'account'
+  ✓ refund-damaged: fixed
+```
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | No regressions (fixes, new cases and metric changes are reported only) |
+| `1` | At least one case that passed in the base run fails in the head run |
+| `2` | A report could not be read, or the reports are for different suites |
+
+Use it to compare a prompt change against `main`, or two models on the same suite.
+
 ## Examples
 
 Both suites use synthetic data only.
@@ -123,12 +149,13 @@ CI runs both on every push and publishes the Markdown report in the job summary.
 - [ADR 0002](docs/adr/0002-replay-provider-for-ci.md): a replay provider makes CI deterministic and free.
 - [ADR 0003](docs/adr/0003-deterministic-scorers-first.md): deterministic scorers before LLM-as-judge.
 - [ADR 0004](docs/adr/0004-prices-are-user-supplied.md): token prices are supplied by the user, not hard-coded.
+- [ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md): `compare` fails on case regressions, not on metric deltas.
 
 ## Roadmap
 
 - [x] v0.1: YAML suites, replay provider, four deterministic scorers, CLI, reports
 - [x] v0.2: OpenAI and Anthropic providers, tokens, cost and p95 latency, recording real runs
-- [ ] v0.3: per-field accuracy for extraction, comparing two runs to detect regressions
+- [ ] v0.3: comparing two runs to detect regressions, multi-turn conversation cases
 - [ ] v0.4: reusable GitHub Action that comments the report on pull requests
 
 ## Development
