@@ -30,11 +30,47 @@ jobs:
           pip install pre-commit
           pre-commit run --all-files --show-diff-on-failure
 
-  # Each project adds its own job below, e.g.:
-  # test:
-  #   name: Tests
-  #   runs-on: ubuntu-latest
-  #   needs: hygiene
-  #   steps:
-  #     - uses: actions/checkout@v7
-  #     - run: make test
+  test:
+    name: Lint, types and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest
+
+  evals:
+    name: Example evals
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ticket-classification, contact-extraction]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - run: uv sync --locked --no-dev
+
+      - name: Run ${{ matrix.suite }}
+        run: >
+          uv run agent-evals run examples/${{ matrix.suite }}/suite.yaml
+          --replay examples/${{ matrix.suite }}/recording.yaml
+          --markdown report.md
+
+      - name: Publish report to the job summary
+        if: always()
+        run: cat report.md >> "$GITHUB_STEP_SUMMARY"
