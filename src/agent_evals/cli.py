@@ -14,6 +14,7 @@ Exit codes for `compare`:
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -143,7 +144,15 @@ def _run(args: argparse.Namespace) -> int:
     return EXIT_OK if run.ok else EXIT_BELOW_THRESHOLD
 
 
+def _use_utf8_output() -> None:
+    """Reports contain ✗ and →; Windows pipes default to cp1252, which cannot encode them."""
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _use_utf8_output()
     args = _build_parser().parse_args(argv)
     return _compare(args) if args.command == "compare" else _run(args)
 
