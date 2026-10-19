@@ -1,0 +1,10 @@
+# Recorded outputs for suite.yaml, keyed by case id.
+# `fenced-json` is wrapped in a code fence (accepted); `two-people` picks the wrong person.
+quote-request: '{"name": "Laura Pérez", "email": "laura.perez@example.com", "intent": "quote"}'
+booking-no-email: '{"name": "Marc Soler", "email": null, "intent": "booking"}'
+complaint: '{"name": "Ana Ruiz", "email": "ana.ruiz@example.org", "intent": "complaint"}'
+fenced-json: |
+  ```json
+  {"name": "Hugo", "email": "hugo@example.net", "intent": "other"}
+  ```
+two-people: '{"name": "Irene", "email": "pablo.gil@example.com", "intent": "quote"}'

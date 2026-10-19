@@ -1,0 +1,12 @@
+# Recorded outputs for suite.yaml, keyed by case id.
+# One answer is deliberately wrong to show how failures are reported.
+double-charge: billing
+invoice-copy: Billing
+app-crash: technical
+sync-error: technical
+password-reset: account
+change-email: account
+delete-account: account
+late-parcel: shipping
+wrong-address: shipping
+refund-damaged: shipping
