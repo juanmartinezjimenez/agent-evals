@@ -6,6 +6,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-19
+
 ### Added
 
-- Initial project structure from `repo-template`.
+- YAML suites validated with Pydantic: system prompt, threshold, cases and tags.
+- Replay provider that returns recorded outputs, for deterministic runs.
+- Scorers: `exact`, `contains`, `regex` and `json_schema` (with expected field values).
+- `agent-evals run` CLI with exit codes, terminal summary, Markdown and JSON reports.
+- Per-tag pass rates.
+- Two synthetic example suites: ticket classification and contact extraction.
+- CI: lint, format, strict type checking, tests and the example evals.
