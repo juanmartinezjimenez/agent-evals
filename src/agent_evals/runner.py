@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from statistics import mean
+from statistics import mean, quantiles
 
 from agent_evals.models import Suite
-from agent_evals.providers import Provider
+from agent_evals.pricing import Pricing
+from agent_evals.providers import Provider, ProviderCallError
 from agent_evals.scorers import score
 
 
@@ -18,6 +20,10 @@ class CaseResult:
     output: str
     latency_ms: float
     tags: tuple[str, ...] = ()
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    error: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +32,7 @@ class RunResult:
     provider: str
     threshold: float
     results: tuple[CaseResult, ...] = field(default_factory=tuple)
+    model: str | None = None
 
     @property
     def total(self) -> int:
@@ -36,16 +43,43 @@ class RunResult:
         return sum(r.passed for r in self.results)
 
     @property
+    def errors(self) -> int:
+        return sum(r.error for r in self.results)
+
+    @property
     def pass_rate(self) -> float:
         return self.passed / self.total if self.total else 0.0
 
     @property
-    def mean_latency_ms(self) -> float:
-        return mean(r.latency_ms for r in self.results) if self.results else 0.0
-
-    @property
     def ok(self) -> bool:
         return self.pass_rate >= self.threshold
+
+    @property
+    def mean_latency_ms(self) -> float:
+        timed = [r.latency_ms for r in self.results if not r.error]
+        return mean(timed) if timed else 0.0
+
+    @property
+    def p95_latency_ms(self) -> float:
+        timed = sorted(r.latency_ms for r in self.results if not r.error)
+        if len(timed) < 2:
+            return timed[0] if timed else 0.0
+        return quantiles(timed, n=20, method="inclusive")[-1]
+
+    @property
+    def input_tokens(self) -> int | None:
+        return _sum_or_none(r.input_tokens for r in self.results if not r.error)
+
+    @property
+    def output_tokens(self) -> int | None:
+        return _sum_or_none(r.output_tokens for r in self.results if not r.error)
+
+    @property
+    def cost_usd(self) -> float | None:
+        costs = [r.cost_usd for r in self.results if not r.error]
+        if not costs or any(c is None for c in costs):
+            return None
+        return sum(c for c in costs if c is not None)
 
     def by_tag(self) -> dict[str, tuple[int, int]]:
         """Return {tag: (passed, total)} for every tag used in the suite."""
@@ -58,10 +92,44 @@ class RunResult:
         return {tag: (p, t) for tag, (p, t) in sorted(stats.items())}
 
 
-def run_suite(suite: Suite, provider: Provider, threshold: float | None = None) -> RunResult:
+def _sum_or_none(values: Iterable[int | None]) -> int | None:
+    """Sum the values, or None if the provider reported no usage for any of them."""
+    items = list(values)
+    if not items or any(v is None for v in items):
+        return None
+    return sum(v for v in items if v is not None)
+
+
+def run_suite(
+    suite: Suite,
+    provider: Provider,
+    threshold: float | None = None,
+    pricing: Pricing | None = None,
+) -> RunResult:
+    """Run every case in order.
+
+    A `ProviderCallError` fails only its case; a `ProviderSetupError` propagates
+    and aborts the run, because every other case would fail the same way.
+    """
     results = []
     for case in suite.cases:
-        completion = provider.complete(suite.system, case)
+        tags = tuple(case.tags)
+        try:
+            completion = provider.complete(suite.system, case)
+        except ProviderCallError as exc:
+            results.append(
+                CaseResult(
+                    case_id=case.id,
+                    passed=False,
+                    reason=f"provider error: {exc}",
+                    output="",
+                    latency_ms=0.0,
+                    tags=tags,
+                    error=True,
+                )
+            )
+            continue
+
         verdict = score(case.expect, completion.text)
         results.append(
             CaseResult(
@@ -70,7 +138,14 @@ def run_suite(suite: Suite, provider: Provider, threshold: float | None = None) 
                 reason=verdict.reason,
                 output=completion.text,
                 latency_ms=completion.latency_ms,
-                tags=tuple(case.tags),
+                tags=tags,
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                cost_usd=(
+                    pricing.cost(completion.input_tokens, completion.output_tokens)
+                    if pricing
+                    else None
+                ),
             )
         )
     return RunResult(
@@ -78,4 +153,5 @@ def run_suite(suite: Suite, provider: Provider, threshold: float | None = None) 
         provider=provider.name,
         threshold=suite.threshold if threshold is None else threshold,
         results=tuple(results),
+        model=getattr(provider, "model", None),
     )
