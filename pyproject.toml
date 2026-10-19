@@ -1,6 +1,6 @@
 [project]
 name = "agent-evals"
-version = "0.1.0"
+version = "0.2.0"
 description = "Evaluate LLM agents against versioned test cases: metrics, model comparison and CI gating."
 readme = "README.md"
 license = "MIT"
@@ -13,12 +13,18 @@ dependencies = [
   "pyyaml>=6.0.3",
 ]
 
+[project.optional-dependencies]
+openai = ["openai>=3.35"]
+anthropic = ["anthropic>=1.15"]
+
 [project.scripts]
 agent-evals = "agent_evals.cli:main"
 
 [dependency-groups]
 dev = [
+  "anthropic>=1.15",
   "mypy>=2.4",
+  "openai>=3.35",
   "pytest>=9.1",
   "ruff>=0.17",
   "types-jsonschema>=4.26",
