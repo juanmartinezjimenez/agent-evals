@@ -20,7 +20,7 @@ through code review like any other change.
 ```console
 $ agent-evals run examples/ticket-classification/suite.yaml \
     --replay examples/ticket-classification/recording.yaml
-PASS ticket-classification: 9/10 passed (90%, threshold 90%) · provider replay · mean latency 0.0 ms
+PASS ticket-classification: 9/10 passed (90%, threshold 90%) · replay · latency mean 0.0 ms, p95 0.0 ms
   ✗ refund-damaged: expected 'billing', got 'shipping'
 ```
 
@@ -29,7 +29,7 @@ PASS ticket-classification: 9/10 passed (90%, threshold 90%) · provider replay 
 ```mermaid
 flowchart LR
   suite[suite.yaml<br/>cases + threshold] --> runner
-  provider[Provider<br/>replay in v0.1] --> runner
+  provider[Provider<br/>replay · openai · anthropic] --> runner
   runner[Runner] --> scorers[Scorers<br/>exact · contains · regex · json_schema]
   scorers --> report[Report<br/>terminal · Markdown · JSON]
   report --> exit{pass rate ≥ threshold?}
@@ -73,11 +73,39 @@ uv run agent-evals run examples/contact-extraction/suite.yaml \
   --markdown report.md --json report.json
 ```
 
+### Against a real model
+
+Install the provider you need and export its API key (never commit it):
+
+```bash
+uv sync --extra anthropic          # or --extra openai
+export ANTHROPIC_API_KEY=...       # or OPENAI_API_KEY
+
+uv run agent-evals run examples/ticket-classification/suite.yaml \
+  --provider anthropic --model claude-haiku-5-5 \
+  --price-input 0.10 --price-output 0.50 \
+  --record my-recording.yaml
+```
+
+- `--price-input` / `--price-output` are USD per million tokens. Copy them from the
+  provider's price list; nothing is hard-coded ([ADR 0004](docs/adr/0004-prices-are-user-supplied.md)).
+- `--record` saves the outputs, so the same run can be replayed in CI for free.
+- A failed call (rate limit, timeout, server error) fails only its case. An invalid
+  key, a missing model or a permission error aborts the run with exit code `2`.
+
 | Exit code | Meaning |
 | --- | --- |
 | `0` | Pass rate met the threshold |
 | `1` | Suite ran but scored below the threshold |
-| `2` | Suite or recordings could not be loaded |
+| `2` | Suite, recordings or provider could not be set up |
+
+### The record → replay loop
+
+```mermaid
+flowchart LR
+  live[Live run<br/>real model, costs money] -- --record --> rec[recording.yaml<br/>committed to Git]
+  rec -- --replay --> ci[CI on every push<br/>deterministic, free]
+```
 
 ## Examples
 
@@ -94,11 +122,12 @@ CI runs both on every push and publishes the Markdown report in the job summary.
 
 - [ADR 0002](docs/adr/0002-replay-provider-for-ci.md): a replay provider makes CI deterministic and free.
 - [ADR 0003](docs/adr/0003-deterministic-scorers-first.md): deterministic scorers before LLM-as-judge.
+- [ADR 0004](docs/adr/0004-prices-are-user-supplied.md): token prices are supplied by the user, not hard-coded.
 
 ## Roadmap
 
 - [x] v0.1: YAML suites, replay provider, four deterministic scorers, CLI, reports
-- [ ] v0.2: OpenAI and Anthropic providers, cost and latency per case, recording real runs
+- [x] v0.2: OpenAI and Anthropic providers, tokens, cost and p95 latency, recording real runs
 - [ ] v0.3: per-field accuracy for extraction, comparing two runs to detect regressions
 - [ ] v0.4: reusable GitHub Action that comments the report on pull requests
 
