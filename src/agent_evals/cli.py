@@ -1,9 +1,14 @@
 """Command-line interface.
 
-Exit codes:
+Exit codes for `run`:
     0  the suite met its threshold
     1  the suite ran but scored below its threshold
     2  the suite, recordings or provider could not be set up
+
+Exit codes for `compare`:
+    0  no case that passed in the base run fails in the head run
+    1  at least one regression
+    2  a report could not be read, or the reports are for different suites
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from agent_evals import __version__
+from agent_evals.compare import RunReport, compare
 from agent_evals.models import Suite
 from agent_evals.pricing import Pricing
 from agent_evals.providers import (
@@ -25,10 +31,17 @@ from agent_evals.providers import (
     make_provider,
     write_recording,
 )
-from agent_evals.report import summary_line, to_json, to_markdown
+from agent_evals.report import (
+    comparison_summary,
+    comparison_to_markdown,
+    summary_line,
+    to_json,
+    to_markdown,
+)
 from agent_evals.runner import RunResult, run_suite
 
 EXIT_OK, EXIT_BELOW_THRESHOLD, EXIT_CONFIG_ERROR = 0, 1, 2
+EXIT_REGRESSION = 1
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -61,6 +74,11 @@ def _build_parser() -> argparse.ArgumentParser:
     out.add_argument("--threshold", type=float, help="override the suite's pass threshold (0-1)")
     out.add_argument("--json", type=Path, dest="json_out", help="write the full result as JSON")
     out.add_argument("--markdown", type=Path, help="write a Markdown report")
+
+    diff = sub.add_parser("compare", help="compare two JSON reports and fail if any case regressed")
+    diff.add_argument("base", type=Path, help="report of the reference run (run --json)")
+    diff.add_argument("head", type=Path, help="report of the run being checked (run --json)")
+    diff.add_argument("--markdown", type=Path, help="write the comparison as Markdown")
     return parser
 
 
@@ -89,9 +107,20 @@ def _execute(args: argparse.Namespace) -> RunResult:
     return run
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+def _compare(args: argparse.Namespace) -> int:
+    try:
+        result = compare(RunReport.from_json(args.base), RunReport.from_json(args.head))
+    except (OSError, ValueError) as exc:  # ValueError covers invalid JSON and ValidationError
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
 
+    print(comparison_summary(result))
+    if args.markdown:
+        args.markdown.write_text(comparison_to_markdown(result), encoding="utf-8")
+    return EXIT_OK if result.ok else EXIT_REGRESSION
+
+
+def _run(args: argparse.Namespace) -> int:
     try:
         run = _execute(args)
     except (OSError, ValueError, ValidationError, ProviderSetupError) as exc:
@@ -112,6 +141,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.markdown.write_text(to_markdown(run), encoding="utf-8")
 
     return EXIT_OK if run.ok else EXIT_BELOW_THRESHOLD
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    return _compare(args) if args.command == "compare" else _run(args)
 
 
 if __name__ == "__main__":

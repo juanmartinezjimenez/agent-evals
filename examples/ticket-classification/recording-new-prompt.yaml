@@ -1,0 +1,13 @@
+# Recorded outputs after a hypothetical prompt change, keyed by case id.
+# Compared with recording.yaml it fixes refund-damaged but breaks wrong-address,
+# so the pass rate stays at 9/10 and only `agent-evals compare` shows the regression.
+double-charge: billing
+invoice-copy: Billing
+app-crash: technical
+sync-error: technical
+password-reset: account
+change-email: account
+delete-account: account
+late-parcel: shipping
+wrong-address: account
+refund-damaged: billing

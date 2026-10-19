@@ -1,4 +1,4 @@
-"""Render a RunResult as a terminal summary, Markdown or JSON."""
+"""Render a RunResult as a terminal summary, Markdown or JSON, and a Comparison as text."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from dataclasses import asdict
 from typing import Any
 
+from agent_evals.compare import Comparison, RunReport
 from agent_evals.runner import RunResult
 
 
@@ -92,3 +93,119 @@ def to_json(run: RunResult) -> str:
         "results": [asdict(r) for r in run.results],
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _changes(c: Comparison) -> str:
+    regressions, fixes = len(c.regressions), len(c.fixes)
+    return (
+        f"{regressions} regression{'' if regressions == 1 else 's'}, "
+        f"{fixes} fix{'' if fixes == 1 else 'es'}"
+    )
+
+
+def _escape(text: str) -> str:
+    return text.replace("|", "\\|")
+
+
+def _rate(report: RunReport) -> str:
+    return f"{report.pass_rate:.0%} ({report.passed}/{report.total})"
+
+
+def _pp(c: Comparison) -> str:
+    return f"{(c.head.pass_rate - c.base.pass_rate) * 100:+.0f} pp"
+
+
+def _usd(value: float) -> str:
+    return f"{'-' if value < 0 else '+'}${abs(value):.4f}"
+
+
+def _tokens(report: RunReport) -> str | None:
+    if report.input_tokens is None or report.output_tokens is None:
+        return None
+    return f"{report.input_tokens:,} / {report.output_tokens:,}"
+
+
+def comparison_summary(c: Comparison) -> str:
+    """One headline plus one line per changed case, for the terminal."""
+    verdict = "PASS" if c.ok else "FAIL"
+    pieces = [
+        f"{verdict} {c.head.suite}: {_changes(c)}",
+        f"pass rate {c.base.pass_rate:.0%} → {c.head.pass_rate:.0%} ({_pp(c)})",
+        f"{c.base.target} → {c.head.target}",
+        f"latency mean {c.base.mean_latency_ms:.1f} → {c.head.mean_latency_ms:.1f} ms, "
+        f"p95 {c.base.p95_latency_ms:.1f} → {c.head.p95_latency_ms:.1f} ms",
+    ]
+    if c.base.cost_usd is not None and c.head.cost_usd is not None:
+        pieces.append(f"cost ${c.base.cost_usd:.4f} → ${c.head.cost_usd:.4f}")
+
+    lines = [" · ".join(pieces)]
+    lines += [f"  ✗ {r.case_id}: {r.reason}" for r in c.regressions]
+    lines += [f"  ✓ {f.case_id}: fixed" for f in c.fixes]
+    lines += [
+        f"  + {r.case_id}: added ({'passes' if r.passed else f'fails: {r.reason}'})"
+        for r in c.added
+    ]
+    lines += [f"  - {r.case_id}: removed" for r in c.removed]
+    return "\n".join(lines)
+
+
+def comparison_to_markdown(c: Comparison) -> str:
+    header = (
+        f"**{'✅ PASS' if c.ok else '❌ FAIL'}** · {_changes(c)} · "
+        f"`{c.base.target}` → `{c.head.target}`"
+    )
+    lines = [f"## {c.head.suite}: base vs head", "", header, ""]
+
+    rows = [
+        ("Pass rate", _rate(c.base), _rate(c.head), _pp(c)),
+        (
+            "Mean latency",
+            f"{c.base.mean_latency_ms:.1f} ms",
+            f"{c.head.mean_latency_ms:.1f} ms",
+            f"{c.head.mean_latency_ms - c.base.mean_latency_ms:+.1f} ms",
+        ),
+        (
+            "p95 latency",
+            f"{c.base.p95_latency_ms:.1f} ms",
+            f"{c.head.p95_latency_ms:.1f} ms",
+            f"{c.head.p95_latency_ms - c.base.p95_latency_ms:+.1f} ms",
+        ),
+    ]
+    base_tokens, head_tokens = _tokens(c.base), _tokens(c.head)
+    if base_tokens or head_tokens:
+        rows.append(("Tokens (in / out)", base_tokens or "—", head_tokens or "—", ""))
+    if c.base.cost_usd is not None or c.head.cost_usd is not None:
+        change = (
+            _usd(c.head.cost_usd - c.base.cost_usd)
+            if c.base.cost_usd is not None and c.head.cost_usd is not None
+            else ""
+        )
+        rows.append(
+            (
+                "Cost",
+                f"${c.base.cost_usd:.4f}" if c.base.cost_usd is not None else "—",
+                f"${c.head.cost_usd:.4f}" if c.head.cost_usd is not None else "—",
+                change,
+            )
+        )
+    lines += ["| Metric | Base | Head | Change |", "| --- | --- | --- | --- |"]
+    lines += [f"| {' | '.join(row)} |" for row in rows]
+    lines.append("")
+
+    if c.regressions:
+        lines += ["### Regressions", "", "| Case | Now fails because |", "| --- | --- |"]
+        lines += [f"| `{r.case_id}` | {_escape(r.reason)} |" for r in c.regressions]
+        lines.append("")
+    if c.fixes:
+        lines += ["### Fixes", "", "| Case | Used to fail because |", "| --- | --- |"]
+        lines += [f"| `{f.case_id}` | {_escape(f.reason)} |" for f in c.fixes]
+        lines.append("")
+    if c.added:
+        lines += ["### Added cases", ""]
+        lines += [f"- `{r.case_id}`: {'passes' if r.passed else 'fails'}" for r in c.added]
+        lines.append("")
+    if c.removed:
+        lines += ["### Removed cases", ""]
+        lines += [f"- `{r.case_id}`" for r in c.removed]
+        lines.append("")
+    return "\n".join(lines)
