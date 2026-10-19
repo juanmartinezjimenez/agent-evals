@@ -1,37 +1,14 @@
-"""Model providers.
-
-v0.1 ships a `ReplayProvider` that returns recorded outputs. It makes runs
-deterministic and free, so the whole pipeline can be tested in CI without an
-API key. Real providers (OpenAI, Anthropic) arrive in v0.2 behind the same
-`Provider` protocol.
-"""
+"""Replay provider: returns pre-recorded outputs, so runs are deterministic and free."""
 
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 import yaml
 
 from agent_evals.models import Case
-
-
-@dataclass(frozen=True, slots=True)
-class Completion:
-    text: str
-    latency_ms: float
-
-
-class Provider(Protocol):
-    name: str
-
-    def complete(self, system: str, case: Case) -> Completion: ...
-
-
-class MissingRecordingError(KeyError):
-    """A case has no recorded output in the replay file."""
+from agent_evals.providers.base import Completion, MissingRecordingError
 
 
 class ReplayProvider:
@@ -56,3 +33,10 @@ class ReplayProvider:
         except KeyError:
             raise MissingRecordingError(case.id) from None
         return Completion(text=text, latency_ms=(time.perf_counter() - start) * 1000)
+
+
+def write_recording(path: Path, outputs: dict[str, str]) -> None:
+    """Write outputs in the format ReplayProvider reads."""
+    header = "# Recorded by agent-evals. Replay with: agent-evals run SUITE --replay THIS_FILE\n"
+    body = yaml.safe_dump(outputs, allow_unicode=True, sort_keys=False, width=1000)
+    path.write_text(header + body, encoding="utf-8")
