@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Lint and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history, so gitleaks scans every commit
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Run pre-commit hooks (formatting + gitleaks)
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
+  # Each project adds its own job below, e.g.:
+  # test:
+  #   name: Tests
+  #   runs-on: ubuntu-latest
+  #   needs: hygiene
+  #   steps:
+  #     - uses: actions/checkout@v7
+  #     - run: make test
