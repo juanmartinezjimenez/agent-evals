@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -128,3 +131,20 @@ def test_compare_with_unreadable_report_exits_two(
 
     assert main(["compare", str(broken), str(tmp_path / "missing.json")]) == EXIT_CONFIG_ERROR
     assert "error:" in capsys.readouterr().err
+
+
+def test_output_survives_a_non_utf8_stdout(examples_dir: Path) -> None:
+    # Windows pipes default to cp1252, which cannot encode the ✗ and → markers.
+    folder = examples_dir / "ticket-classification"
+    command = [sys.executable, "-m", "agent_evals.cli", "run", str(folder / "suite.yaml")]
+    command += ["--replay", str(folder / "recording.yaml")]
+
+    done = subprocess.run(
+        command,
+        capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        check=False,
+    )
+
+    assert done.returncode == EXIT_OK, done.stderr.decode(errors="replace")
+    assert "✗ refund-damaged" in done.stdout.decode("utf-8")
