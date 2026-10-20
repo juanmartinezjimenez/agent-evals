@@ -74,3 +74,25 @@ jobs:
       - name: Publish report to the job summary
         if: always()
         run: cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+  action:
+    # Runs this repository's own action on its example suites, so every PR checks
+    # action.yml end to end and gets one comment per suite.
+    name: Action
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ticket-classification, contact-extraction, workshop-booking]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./
+        with:
+          suite: examples/${{ matrix.suite }}/suite.yaml
+          replay: examples/${{ matrix.suite }}/recording.yaml
