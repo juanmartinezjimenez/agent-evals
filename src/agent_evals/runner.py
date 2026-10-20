@@ -63,7 +63,8 @@ class RunResult:
 
     @property
     def ok(self) -> bool:
-        return self.pass_rate >= self.threshold
+        """Threshold met and no stale case: a stale replay says nothing about the suite."""
+        return self.pass_rate >= self.threshold and not self.stale
 
     @property
     def mean_latency_ms(self) -> float:

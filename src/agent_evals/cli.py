@@ -3,11 +3,12 @@
 Exit codes for `run`:
     0  the suite met its threshold
     1  the suite ran but scored below its threshold
-    2  the suite, recordings or provider could not be set up
+    2  the suite, recordings or provider could not be set up, or a replayed case is
+       stale (its recording answers a different prompt or input); reports are still written
 
 Exit codes for `compare`:
-    0  no case that passed in the base run fails in the head run
-    1  at least one regression
+    0  no case that passed in the base run fails in the head run, and none is stale
+    1  at least one regression or stale case
     2  a report could not be read, or the reports are for different suites
 """
 
@@ -29,6 +30,7 @@ from agent_evals.providers import (
     PROVIDERS,
     MissingRecordingError,
     ProviderSetupError,
+    ReplayProvider,
     make_provider,
     write_recording,
 )
@@ -64,7 +66,9 @@ def _build_parser() -> argparse.ArgumentParser:
     source.add_argument("--model", help="model id for live providers, e.g. claude-haiku-5-5")
     source.add_argument("--replay", type=Path, help="recorded outputs to replay (case id -> text)")
     source.add_argument(
-        "--record", type=Path, help="after a live run, save outputs here for later replay"
+        "--record",
+        type=Path,
+        help="save outputs here for later replay; with --replay, upgrades an old recording",
     )
 
     cost = run.add_argument_group("cost (USD per million tokens, from the provider's price list)")
@@ -96,16 +100,23 @@ def _execute(args: argparse.Namespace) -> RunResult:
     provider_name = args.provider or ("replay" if args.replay else None)
     if provider_name is None:
         raise ValueError("choose a source: --replay FILE or --provider openai|anthropic --model M")
-    if args.record and provider_name == "replay":
-        raise ValueError("--record only makes sense with a live provider")
 
     suite = Suite.from_yaml(args.suite)
     provider = make_provider(provider_name, model=args.model, replay=args.replay)
     run = run_suite(suite, provider, threshold=args.threshold, pricing=_pricing(args))
 
     if args.record:
+        if run.stale:
+            # Re-recording a stale replay would stamp a new fingerprint on an old answer.
+            raise ValueError(
+                f"not recording: {run.stale} stale case(s); re-record them with a live provider"
+            )
+        if isinstance(provider, ReplayProvider):  # upgrade: keep where the outputs came from
+            source = (provider.recorded_provider, provider.recorded_model)
+        else:
+            source = (provider.name, run.model)
         outputs = {r.case_id: r.output for r in run.results if not r.error}
-        write_recording(args.record, suite, outputs, provider=provider.name, model=run.model)
+        write_recording(args.record, suite, outputs, provider=source[0], model=source[1])
     return run
 
 
@@ -132,16 +143,23 @@ def _run(args: argparse.Namespace) -> int:
         print(f"error: no recorded output for case {exc.args[0]!r}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
+    for warning in run.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
     print(summary_line(run))
     for r in run.results:
         if not r.passed:
-            print(f"  ✗ {r.case_id}: {r.reason}")
+            print(f"  {'⚠' if r.stale else '✗'} {r.case_id}: {r.reason}")
 
     if args.json_out:
         args.json_out.write_text(to_json(run) + "\n", encoding="utf-8")
     if args.markdown:
         args.markdown.write_text(to_markdown(run), encoding="utf-8")
 
+    if run.stale:
+        print(
+            f"error: {run.stale} stale case(s); results do not reflect the suite", file=sys.stderr
+        )
+        return EXIT_CONFIG_ERROR
     return EXIT_OK if run.ok else EXIT_BELOW_THRESHOLD
 
 

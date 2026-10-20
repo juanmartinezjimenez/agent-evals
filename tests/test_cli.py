@@ -148,3 +148,91 @@ def test_output_survives_a_non_utf8_stdout(examples_dir: Path) -> None:
 
     assert done.returncode == EXIT_OK, done.stderr.decode(errors="replace")
     assert "✗ refund-damaged" in done.stdout.decode("utf-8")
+
+
+def _stale_setup(examples_dir: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """A recording made for the ticket suite, and a copy of the suite with one input edited."""
+    folder = examples_dir / "ticket-classification"
+    recording = tmp_path / "rec.yaml"
+    old = tmp_path / "old.yaml"
+    old.write_text((folder / "recording.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    assert main(
+        ["run", str(folder / "suite.yaml"), "--replay", str(old), "--record", str(recording)]
+    ) in (
+        EXIT_OK,
+        EXIT_BELOW_THRESHOLD,
+    )
+    edited = tmp_path / "suite.yaml"
+    text = (folder / "suite.yaml").read_text(encoding="utf-8")
+    edited.write_text(
+        text.replace("all the data you hold", "every record you keep"), encoding="utf-8"
+    )
+    return edited, recording
+
+
+def test_stale_replay_exits_two_and_still_writes_reports(
+    examples_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    suite, recording = _stale_setup(examples_dir, tmp_path)
+    capsys.readouterr()
+    json_out, md_out = tmp_path / "run.json", tmp_path / "run.md"
+
+    code = main(
+        [
+            "run",
+            str(suite),
+            "--replay",
+            str(recording),
+            "--json",
+            str(json_out),
+            "--markdown",
+            str(md_out),
+        ]
+    )
+
+    assert code == EXIT_CONFIG_ERROR
+    captured = capsys.readouterr()
+    assert captured.out.startswith("FAIL ticket-classification: 8/10 passed")
+    assert "⚠ delete-account: stale recording" in captured.out
+    assert "1 stale case(s)" in captured.err
+    data = json.loads(json_out.read_text(encoding="utf-8"))
+    assert (data["stale"], data["ok"]) == (1, False)
+    assert [r["case_id"] for r in data["results"] if r["stale"]] == ["delete-account"]
+    assert "replayed answers recorded for a different prompt or input" in md_out.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_old_recording_prints_a_warning(
+    examples_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = examples_dir / "ticket-classification"
+    old = tmp_path / "old.yaml"
+    old.write_text(
+        "".join(f"{c}: billing\n" for c in ("double-charge", "invoice-copy")), encoding="utf-8"
+    )
+    suite = tmp_path / "suite.yaml"
+    text = (folder / "suite.yaml").read_text(encoding="utf-8")
+    suite.write_text(text.split("  - id: app-crash")[0], encoding="utf-8")  # first two cases only
+
+    assert main(["run", str(suite), "--replay", str(old)]) == EXIT_OK
+    assert "warning: recording has no fingerprints" in capsys.readouterr().err
+
+
+def test_compare_fails_on_a_stale_head_without_counting_a_regression(
+    examples_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    suite, recording = _stale_setup(examples_dir, tmp_path)
+    folder = examples_dir / "ticket-classification"
+    base, head, md_out = tmp_path / "base.json", tmp_path / "head.json", tmp_path / "c.md"
+    main(["run", str(folder / "suite.yaml"), "--replay", str(recording), "--json", str(base)])
+    main(["run", str(suite), "--replay", str(recording), "--json", str(head)])
+    capsys.readouterr()
+
+    assert main(["compare", str(base), str(head), "--markdown", str(md_out)]) == EXIT_REGRESSION
+    out = capsys.readouterr().out
+    assert out.startswith("FAIL ticket-classification: 0 regressions, 0 fixes, 1 stale")
+    assert "⚠ delete-account: stale recording" in out
+    markdown = md_out.read_text(encoding="utf-8")
+    assert "⚠️ 1 stale recording" in markdown
+    assert "- `delete-account`" in markdown

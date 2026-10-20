@@ -94,3 +94,35 @@ def test_invalid_report_is_rejected(tmp_path: Path) -> None:
     path.write_text('{"suite": "demo"}', encoding="utf-8")
     with pytest.raises(ValidationError):
         RunReport.from_json(path)
+
+
+def test_stale_head_case_is_listed_apart_and_fails_the_comparison() -> None:
+    base = _report(("a", True), ("b", True))
+    head = _report(("a", True), ("b", False))
+    stale_head = head.model_copy(
+        update={
+            "results": [
+                head.results[0],
+                head.results[1].model_copy(update={"stale": True, "reason": "stale recording"}),
+            ]
+        }
+    )
+
+    result = compare(base, stale_head)
+
+    assert result.regressions == ()
+    assert [r.case_id for r in result.stale] == ["b"]
+    assert not result.ok
+
+
+def test_reports_from_before_stale_detection_still_load(tmp_path: Path) -> None:
+    path = tmp_path / "old.json"
+    path.write_text(
+        '{"suite": "demo", "provider": "replay", "passed": 1, "total": 1, "pass_rate": 1.0,'
+        ' "mean_latency_ms": 0.0, "p95_latency_ms": 0.0,'
+        ' "results": [{"case_id": "a", "passed": true, "reason": "ok"}]}',
+        encoding="utf-8",
+    )
+    report = RunReport.from_json(path)
+    assert report.warnings == []
+    assert report.results[0].stale is False
