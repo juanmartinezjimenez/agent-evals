@@ -5,13 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_evals.providers.base import (
+    STALE_REASON,
     Completion,
     MissingRecordingError,
     Provider,
     ProviderCallError,
     ProviderSetupError,
+    StaleRecordingError,
 )
-from agent_evals.providers.replay import ReplayProvider, write_recording
+from agent_evals.providers.replay import ReplayProvider, fingerprint, write_recording
 
 LIVE_PROVIDERS = ("openai", "anthropic")
 PROVIDERS = ("replay", *LIVE_PROVIDERS)
@@ -19,12 +21,15 @@ PROVIDERS = ("replay", *LIVE_PROVIDERS)
 __all__ = [
     "LIVE_PROVIDERS",
     "PROVIDERS",
+    "STALE_REASON",
     "Completion",
     "MissingRecordingError",
     "Provider",
     "ProviderCallError",
     "ProviderSetupError",
     "ReplayProvider",
+    "StaleRecordingError",
+    "fingerprint",
     "make_provider",
     "write_recording",
 ]

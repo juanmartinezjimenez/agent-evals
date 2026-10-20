@@ -9,16 +9,19 @@ import httpx2
 import openai
 import pytest
 
-from agent_evals.models import Case
+from agent_evals.models import Case, Suite
 from agent_evals.providers import (
     ProviderCallError,
     ProviderSetupError,
     ReplayProvider,
+    StaleRecordingError,
+    fingerprint,
     make_provider,
     write_recording,
 )
 from agent_evals.providers.anthropic_provider import DEFAULT_MAX_TOKENS, AnthropicProvider
 from agent_evals.providers.openai_provider import OpenAIProvider
+from agent_evals.providers.replay import NO_FINGERPRINTS_WARNING
 
 CASE = Case.model_validate(
     {"id": "c1", "input": "Where is my parcel?", "expect": {"type": "exact", "value": "shipping"}}
@@ -225,18 +228,104 @@ def test_make_provider_validates_options(tmp_path: Path) -> None:
         make_provider("llama-on-a-toaster", model="x")
 
 
+def _suite(*cases: Case, system: str = "Be brief.") -> Suite:
+    return Suite(name="demo", system=system, cases=list(cases))
+
+
+def _case(case_id: str, text: str = "x") -> Case:
+    return Case.model_validate(
+        {"id": case_id, "input": text, "expect": {"type": "exact", "value": "y"}}
+    )
+
+
 def test_recording_round_trip_keeps_unicode_and_newlines(tmp_path: Path) -> None:
     outputs = {"a": "Lucía → envío", "b": '```json\n{"ok": true}\n```'}
+    suite = _suite(_case("a"), _case("b"))
     path = tmp_path / "rec.yaml"
-    write_recording(path, outputs)
+    write_recording(path, suite, outputs, provider="anthropic", model="claude-test")
 
     replayed = ReplayProvider.from_yaml(path)
-    for case_id, text in outputs.items():
-        case = Case.model_validate(
-            {"id": case_id, "input": "x", "expect": {"type": "exact", "value": "y"}}
-        )
-        assert replayed.complete("", case).text == text
-    assert "Lucía" in path.read_text(encoding="utf-8")  # written as UTF-8, not escaped
+    for case in suite.cases:
+        assert replayed.complete(suite.system, case).text == outputs[case.id]
+    assert replayed.warnings == ()
+    assert (replayed.recorded_provider, replayed.recorded_model) == ("anthropic", "claude-test")
+    text = path.read_text(encoding="utf-8")
+    assert "Lucía" in text  # written as UTF-8, not escaped
+    assert "version: 2" in text
+
+
+# --- Fingerprints and stale recordings (ADR 0007) ---------------------------
+
+
+def test_fingerprint_covers_system_prompt_and_messages() -> None:
+    case = _case("a", "Where is my parcel?")
+    base = fingerprint("Be brief.", case)
+
+    assert base.startswith("sha256:")
+    assert len(base) == len("sha256:") + 16
+    assert fingerprint("Be brief.", case) == base  # deterministic
+    assert fingerprint("Be very brief.", case) != base
+    assert fingerprint("Be brief.", _case("a", "Where is my order?")) != base
+
+
+def test_fingerprint_ignores_expectations_tags_and_id() -> None:
+    other = Case.model_validate(
+        {
+            "id": "b",
+            "input": "Where is my parcel?",
+            "expect": {"type": "contains", "values": ["ship"]},
+            "tags": ["new"],
+        }
+    )
+    assert fingerprint("s", _case("a", "Where is my parcel?")) == fingerprint("s", other)
+
+
+def test_input_and_single_user_turn_have_the_same_fingerprint() -> None:
+    as_turn = Case.model_validate(
+        {
+            "id": "a",
+            "turns": [{"role": "user", "content": "Where is my parcel?"}],
+            "expect": {"type": "exact", "value": "y"},
+        }
+    )
+    assert fingerprint("s", _case("a", "Where is my parcel?")) == fingerprint("s", as_turn)
+
+
+def test_changed_input_or_system_prompt_makes_the_replay_stale(tmp_path: Path) -> None:
+    path = tmp_path / "rec.yaml"
+    write_recording(path, _suite(_case("a", "old question")), {"a": "old answer"})
+
+    replayed = ReplayProvider.from_yaml(path)
+    assert replayed.complete("Be brief.", _case("a", "old question")).text == "old answer"
+    with pytest.raises(StaleRecordingError):
+        replayed.complete("Be brief.", _case("a", "new question"))
+    with pytest.raises(StaleRecordingError):
+        replayed.complete("A new system prompt.", _case("a", "old question"))
+
+
+def test_old_flat_recordings_replay_with_a_warning(tmp_path: Path) -> None:
+    path = tmp_path / "rec.yaml"
+    path.write_text("a: old answer\nversion: also a case id\n", encoding="utf-8")
+
+    replayed = ReplayProvider.from_yaml(path)
+    assert replayed.complete("anything", _case("a", "anything")).text == "old answer"
+    assert replayed.warnings == (NO_FINGERPRINTS_WARNING,)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "version: 3\ncases: {}\n",
+        "version: 2\ncases:\n  a: {output: hi}\n",
+        "version: 2\ncases:\n  a: {fingerprint: 'md5:123', output: hi}\n",
+        "version: 2\ncases: {}\nextra: field\n",
+    ],
+)
+def test_invalid_versioned_recordings_are_rejected(tmp_path: Path, body: str) -> None:
+    path = tmp_path / "rec.yaml"
+    path.write_text(body, encoding="utf-8")
+    with pytest.raises(ValueError):
+        ReplayProvider.from_yaml(path)
 
 
 def test_replay_answers_a_conversation_by_case_id() -> None:

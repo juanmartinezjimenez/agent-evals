@@ -44,6 +44,19 @@ class MissingRecordingError(KeyError):
     """A case has no recorded output in the replay file."""
 
 
+STALE_REASON = (
+    "stale recording: the system prompt or input changed since this case was recorded; "
+    "re-record with --record"
+)
+
+
+class StaleRecordingError(Exception):
+    """The recorded output answers a different system prompt or input (ADR 0007).
+
+    The case is marked as failed and stale; the run continues so every stale case is listed.
+    """
+
+
 # HTTP statuses that mean every other call would fail the same way.
 FATAL_STATUSES = frozenset({401, 403, 404})
 

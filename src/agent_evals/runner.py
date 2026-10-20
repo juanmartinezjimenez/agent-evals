@@ -8,7 +8,7 @@ from statistics import mean, quantiles
 
 from agent_evals.models import Suite
 from agent_evals.pricing import Pricing
-from agent_evals.providers import Provider, ProviderCallError
+from agent_evals.providers import STALE_REASON, Provider, ProviderCallError, StaleRecordingError
 from agent_evals.scorers import score
 
 
@@ -24,6 +24,12 @@ class CaseResult:
     output_tokens: int | None = None
     cost_usd: float | None = None
     error: bool = False
+    stale: bool = False
+
+    @property
+    def measured(self) -> bool:
+        """Whether latency and usage come from a real answer (not an error or a stale replay)."""
+        return not (self.error or self.stale)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +39,7 @@ class RunResult:
     threshold: float
     results: tuple[CaseResult, ...] = field(default_factory=tuple)
     model: str | None = None
+    warnings: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:
@@ -47,6 +54,10 @@ class RunResult:
         return sum(r.error for r in self.results)
 
     @property
+    def stale(self) -> int:
+        return sum(r.stale for r in self.results)
+
+    @property
     def pass_rate(self) -> float:
         return self.passed / self.total if self.total else 0.0
 
@@ -56,27 +67,27 @@ class RunResult:
 
     @property
     def mean_latency_ms(self) -> float:
-        timed = [r.latency_ms for r in self.results if not r.error]
+        timed = [r.latency_ms for r in self.results if r.measured]
         return mean(timed) if timed else 0.0
 
     @property
     def p95_latency_ms(self) -> float:
-        timed = sorted(r.latency_ms for r in self.results if not r.error)
+        timed = sorted(r.latency_ms for r in self.results if r.measured)
         if len(timed) < 2:
             return timed[0] if timed else 0.0
         return quantiles(timed, n=20, method="inclusive")[-1]
 
     @property
     def input_tokens(self) -> int | None:
-        return _sum_or_none(r.input_tokens for r in self.results if not r.error)
+        return _sum_or_none(r.input_tokens for r in self.results if r.measured)
 
     @property
     def output_tokens(self) -> int | None:
-        return _sum_or_none(r.output_tokens for r in self.results if not r.error)
+        return _sum_or_none(r.output_tokens for r in self.results if r.measured)
 
     @property
     def cost_usd(self) -> float | None:
-        costs = [r.cost_usd for r in self.results if not r.error]
+        costs = [r.cost_usd for r in self.results if r.measured]
         if not costs or any(c is None for c in costs):
             return None
         return sum(c for c in costs if c is not None)
@@ -109,7 +120,8 @@ def run_suite(
     """Run every case in order.
 
     A `ProviderCallError` fails only its case; a `ProviderSetupError` propagates
-    and aborts the run, because every other case would fail the same way.
+    and aborts the run, because every other case would fail the same way. A
+    `StaleRecordingError` fails its case as stale, so every stale case is listed.
     """
     results = []
     for case in suite.cases:
@@ -126,6 +138,19 @@ def run_suite(
                     latency_ms=0.0,
                     tags=tags,
                     error=True,
+                )
+            )
+            continue
+        except StaleRecordingError:
+            results.append(
+                CaseResult(
+                    case_id=case.id,
+                    passed=False,
+                    reason=STALE_REASON,
+                    output="",
+                    latency_ms=0.0,
+                    tags=tags,
+                    stale=True,
                 )
             )
             continue
@@ -154,4 +179,5 @@ def run_suite(
         threshold=suite.threshold if threshold is None else threshold,
         results=tuple(results),
         model=getattr(provider, "model", None),
+        warnings=tuple(getattr(provider, "warnings", ())),
     )
