@@ -180,7 +180,7 @@ CI runs all of them on every push and publishes the Markdown report in the job s
 
 - [x] v0.1: YAML suites, replay provider, four deterministic scorers, CLI, reports
 - [x] v0.2: OpenAI and Anthropic providers, tokens, cost and p95 latency, recording real runs
-- [ ] v0.3: comparing two runs to detect regressions, multi-turn conversation cases
+- [x] v0.3: comparing two runs to detect regressions, multi-turn conversation cases
 - [ ] v0.4: reusable GitHub Action that comments the report on pull requests
 
 ## Development
