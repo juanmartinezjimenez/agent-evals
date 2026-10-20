@@ -13,7 +13,12 @@ import time
 from typing import Any
 
 from agent_evals.models import Case
-from agent_evals.providers.base import Completion, ProviderSetupError, translate_api_error
+from agent_evals.providers.base import (
+    Completion,
+    ProviderSetupError,
+    chat_messages,
+    translate_api_error,
+)
 
 DEFAULT_MAX_TOKENS = 1024
 
@@ -49,7 +54,7 @@ class AnthropicProvider:
         params: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self._max_tokens,
-            "messages": [{"role": "user", "content": case.input}],
+            "messages": chat_messages(case),
         }
         if system:
             params["system"] = system

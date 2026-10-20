@@ -17,9 +17,16 @@ class Completion:
 
 
 class Provider(Protocol):
+    """Answers the last user turn of `case.messages`; never read `case.input` directly."""
+
     name: str
 
     def complete(self, system: str, case: Case) -> Completion: ...
+
+
+def chat_messages(case: Case) -> list[dict[str, str]]:
+    """The case's conversation as `{"role", "content"}` dicts, accepted by both live APIs."""
+    return [{"role": turn.role, "content": turn.content} for turn in case.messages]
 
 
 class ProviderSetupError(RuntimeError):

@@ -23,6 +23,22 @@ from agent_evals.providers.openai_provider import OpenAIProvider
 CASE = Case.model_validate(
     {"id": "c1", "input": "Where is my parcel?", "expect": {"type": "exact", "value": "shipping"}}
 )
+CONVERSATION = Case.model_validate(
+    {
+        "id": "c2",
+        "turns": [
+            {"role": "user", "content": "My name is Laura. Can I book a repair?"},
+            {"role": "assistant", "content": "Tuesday at 10:00 or Thursday at 17:30?"},
+            {"role": "user", "content": "Thursday, please."},
+        ],
+        "expect": {"type": "contains", "values": ["Thursday"]},
+    }
+)
+CONVERSATION_MESSAGES = [
+    {"role": "user", "content": "My name is Laura. Can I book a repair?"},
+    {"role": "assistant", "content": "Tuesday at 10:00 or Thursday at 17:30?"},
+    {"role": "user", "content": "Thursday, please."},
+]
 REQUEST = httpx2.Request("POST", "https://api.example.test/v1")
 
 
@@ -64,7 +80,11 @@ def test_openai_maps_text_and_usage() -> None:
     assert completion.text == "shipping"
     assert (completion.input_tokens, completion.output_tokens) == (42, 1)
     assert endpoint.calls == [
-        {"model": "gpt-test", "input": "Where is my parcel?", "instructions": "Be brief."}
+        {
+            "model": "gpt-test",
+            "input": [{"role": "user", "content": "Where is my parcel?"}],
+            "instructions": "Be brief.",
+        }
     ]
 
 
@@ -85,6 +105,14 @@ def test_openai_without_usage_reports_none() -> None:
     client, _ = _openai(SimpleNamespace(output_text="x", usage=None))
     completion = OpenAIProvider("gpt-test", client=client).complete("", CASE)
     assert completion.input_tokens is None
+
+
+def test_openai_sends_every_turn_in_order() -> None:
+    client, endpoint = _openai(SimpleNamespace(output_text="Thursday", usage=_usage(80, 3)))
+    OpenAIProvider("gpt-test", client=client).complete("Book repairs.", CONVERSATION)
+
+    assert endpoint.calls[0]["input"] == CONVERSATION_MESSAGES
+    assert endpoint.calls[0]["instructions"] == "Book repairs."
 
 
 # --- Anthropic --------------------------------------------------------------
@@ -120,6 +148,14 @@ def test_anthropic_never_sends_temperature_and_omits_empty_system() -> None:
 
     assert "temperature" not in endpoint.calls[0]
     assert "system" not in endpoint.calls[0]
+
+
+def test_anthropic_sends_every_turn_in_order() -> None:
+    client, endpoint = _anthropic(SimpleNamespace(content=[], usage=_usage(80, 3)))
+    AnthropicProvider("claude-test", client=client).complete("Book repairs.", CONVERSATION)
+
+    assert endpoint.calls[0]["messages"] == CONVERSATION_MESSAGES
+    assert endpoint.calls[0]["system"] == "Book repairs."
 
 
 # --- Error translation ------------------------------------------------------
@@ -201,3 +237,8 @@ def test_recording_round_trip_keeps_unicode_and_newlines(tmp_path: Path) -> None
         )
         assert replayed.complete("", case).text == text
     assert "Lucía" in path.read_text(encoding="utf-8")  # written as UTF-8, not escaped
+
+
+def test_replay_answers_a_conversation_by_case_id() -> None:
+    provider = ReplayProvider({"c2": "Booked for Thursday, Laura."})
+    assert provider.complete("", CONVERSATION).text == "Booked for Thursday, Laura."
