@@ -1,0 +1,79 @@
+name: agent-evals
+description: Replay an agent-evals suite on a pull request and on its base commit, and comment the comparison.
+author: Juan Martínez Jiménez
+branding:
+  icon: check-circle
+  color: green
+
+# Design and security model: docs/adr/0007-pr-comment-action-regenerates-the-base.md
+# Use only on `pull_request`, with `contents: read` and `pull-requests: write`.
+
+inputs:
+  suite:
+    description: Path to the suite YAML file, relative to the repository root.
+    required: true
+  replay:
+    description: Path to the recording to replay, relative to the repository root (the same path is used on the base commit).
+    required: true
+  fail-on-regression:
+    description: Fail the step when a case that passed on the base commit fails on the pull request. Stale recordings always fail.
+    default: "true"
+  comment:
+    description: Create or update one comment per suite on the pull request.
+    default: "true"
+  github-token:
+    description: Token used to check out the base commit and to write the comment.
+    default: ${{ github.token }}
+
+outputs:
+  regressions:
+    description: Number of cases that passed on the base commit and fail on the pull request.
+    value: ${{ steps.evals.outputs.regressions }}
+  fixes:
+    description: Number of cases that failed on the base commit and pass on the pull request.
+    value: ${{ steps.evals.outputs.fixes }}
+  stale:
+    description: Number of cases whose recording answers a different prompt or input.
+    value: ${{ steps.evals.outputs.stale }}
+  report:
+    description: Path to the Markdown report.
+    value: ${{ steps.evals.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Refuse events other than pull_request
+      if: github.event_name != 'pull_request'
+      shell: bash
+      run: |
+        echo "::error::agent-evals runs only on pull_request. pull_request_target is refused: it would run the PR's code with a write token and secrets (ADR 0007)."
+        exit 1
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      with:
+        enable-cache: false
+
+    - name: Check out the base commit
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: .agent-evals-base
+        persist-credentials: false
+        token: ${{ inputs.github-token }}
+
+    # Inputs reach the script as environment variables, never interpolated into
+    # the shell, so a crafted path cannot run commands.
+    - name: Replay, compare and comment
+      id: evals
+      shell: bash
+      env:
+        INPUT_SUITE: ${{ inputs.suite }}
+        INPUT_REPLAY: ${{ inputs.replay }}
+        INPUT_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        AGENT_EVALS_BASE_DIR: .agent-evals-base
+        GH_TOKEN: ${{ inputs.github-token }}
+        ACTION_PATH: ${{ github.action_path }}
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/agent-evals-venv
+      run: uv run --project "$ACTION_PATH" --locked --no-dev --python 3.13 python -m agent_evals.action
