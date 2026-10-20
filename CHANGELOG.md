@@ -6,6 +6,21 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Tool call evaluation ([ADR 0008](docs/adr/0008-evaluate-the-first-tool-call.md)): suites declare `tools` as JSON Schema, and the model's first tool call is scored without being executed.
+- Expectations `tool_call` (tool, arguments as a subset or `exact`, `$regex` for free text, arguments always validated against the tool schema, formats included), `no_tool_call` and `no_call_to`.
+- `expect` accepts a list: every expectation must pass, and the reason lists every failure. Text expectations check the text the model writes next to a call.
+- OpenAI and Anthropic providers send the suite's tools (`auto` choice, parallel calls disabled, OpenAI `strict` off) and return the first call with the text.
+- Recording format 3 for suites with tools (text and `tool_call` per case); the stale-recording fingerprint includes the tool definitions for those suites.
+- `tool_call` per case in the JSON report and a Tool call column in the Markdown failures table.
+- Example suite `workspace-agent` with the eight mcp-workspace v0.1.0 tools, run in CI.
+
+### Changed
+
+- The `Provider` protocol is now `complete(system, case, tools=())` and `Completion` has an optional `tool_call`. Custom providers need the extra parameter; suites without tools pass none.
+- In a suite with tools, a case with only text expectations fails if the model calls a tool.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

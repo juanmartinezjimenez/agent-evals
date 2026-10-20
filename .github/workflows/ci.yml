@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [ticket-classification, contact-extraction, workshop-booking]
+        suite: [ticket-classification, contact-extraction, workshop-booking, workspace-agent]
     steps:
       - uses: actions/checkout@v7
 
@@ -88,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [ticket-classification, contact-extraction, workshop-booking]
+        suite: [ticket-classification, contact-extraction, workshop-booking, workspace-agent]
     steps:
       - uses: actions/checkout@v7
 

@@ -109,3 +109,23 @@ def test_workshop_example_catches_an_invented_slot(examples_dir: Path) -> None:
     assert (run.passed, run.total) == (5, 6)
     assert run.ok  # threshold is 0.8
     assert [r.case_id for r in run.results if not r.passed] == ["no-invented-slot"]
+
+
+def test_workspace_agent_example_catches_the_overwrite(examples_dir: Path) -> None:
+    suite, provider = _load(examples_dir, "workspace-agent")
+    run = run_suite(suite, provider)
+
+    assert [t.name for t in suite.tools] == [
+        "notes_list",
+        "notes_read",
+        "notes_search",
+        "tasks_list",
+        "notes_write",
+        "notes_append",
+        "tasks_add",
+        "tasks_complete",
+    ]
+    assert (run.passed, run.total, run.ok) == (7, 8, True)
+    failed = next(r for r in run.results if not r.passed)
+    assert failed.case_id == "append-not-overwrite"
+    assert failed.reason == "expected notes_append, got notes_write"
