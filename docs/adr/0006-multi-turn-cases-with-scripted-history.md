@@ -1,6 +1,6 @@
 # 0006. Multi-turn cases with a scripted history
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-20
 
 ## Context
@@ -87,11 +87,32 @@ turns.
 
 ### Compatibility
 
-`input` keeps working with no change. Internally, a case exposes its
-conversation as a list of messages; a case with `input: "..."` becomes a single
-user turn. Providers, the runner and the scorers read that list, so there is one
-code path for both forms. Existing suites, recordings and JSON reports remain
-valid, and the `Provider` protocol (`complete(system, case)`) does not change.
+`input` keeps working with no change for suite authors. Existing suites,
+recordings and JSON reports remain valid.
+
+Internally, `Case` gains a `messages` property: the conversation as a list of
+`(role, content)` turns. A case with `input: "..."` returns a single user turn,
+and a case with `turns` returns them as written. The runner and the scorers do
+not read the input at all, so they do not change.
+
+**The `Provider` signature does not change, but its contract does.** Providers
+already receive the whole case, `complete(self, system: str, case: Case) ->
+Completion`, not a string. Today the live providers read `case.input`. From now
+on every provider must read `case.messages`, because `case.input` is `None` for a
+case with `turns`; a provider that kept reading `case.input` would send an empty
+request. Impact on each provider:
+
+| Provider | Today | After |
+| --- | --- | --- |
+| `OpenAIProvider` | `input=case.input` (a string) | `input=` the list of messages from `case.messages` |
+| `AnthropicProvider` | `messages=[{"role": "user", "content": case.input}]` | `messages=` the list built from `case.messages` |
+| `ReplayProvider` | Looks up `case.id`; never reads the input | No change |
+
+Both forms go through the same code path in each live provider, so a
+single-message case produces the same request as before (a one-message list is
+equivalent to a plain string in the Responses API, and is exactly what the
+Messages API received already). Third-party providers written against the
+protocol need the same one-line change; the CHANGELOG says so.
 
 ### How the conversation reaches each provider
 
@@ -106,9 +127,10 @@ request, so no server-side conversation state (such as OpenAI's
 `previous_response_id`) is used. Every call is stateless and the request is
 fully defined by the suite file.
 
-Reported `input_tokens` include the whole history, so a long conversation costs
-more than its last message suggests. That is the real cost of the call and is
-reported as such.
+**Cost:** every earlier turn, user and assistant alike, is sent again on each
+call and billed as input tokens. Reported `input_tokens` and the cost therefore
+include the whole history, so a long conversation costs more than its last
+message suggests. That is the real cost of the call and is reported as such.
 
 ### Replay and `--record`
 
