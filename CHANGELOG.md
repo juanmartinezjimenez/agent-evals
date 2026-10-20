@@ -6,6 +6,22 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Stale recording detection ([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)): `--record` writes recording format 2 with a fingerprint of each case's system prompt and input. A replayed case whose prompt or input changed fails as stale; `run` exits 2 after writing its reports, and the JSON report has `stale` per case and per run.
+- `--record` together with `--replay` upgrades a recording to format 2 without calling any API, and refuses when a case is stale.
+- `compare` lists stale head cases apart from regressions and fixes, and fails when there is any.
+- Reports carry run warnings; recordings without fingerprints add one.
+
+### Changed
+
+- A run with a stale case is never `ok`, even if its pass rate meets the threshold.
+- The example recordings use format 2.
+
+### Deprecated
+
+- Recording format 1 (a flat `case id: output` mapping) still replays, with a warning; upgrade it with `--replay OLD --record NEW`.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

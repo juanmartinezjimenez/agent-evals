@@ -120,7 +120,7 @@ uv run agent-evals run examples/ticket-classification/suite.yaml \
 | --- | --- |
 | `0` | Pass rate met the threshold |
 | `1` | Suite ran but scored below the threshold |
-| `2` | Suite, recordings or provider could not be set up |
+| `2` | Suite, recordings or provider could not be set up, or a replayed case is stale (reports are still written) |
 
 ### The record → replay loop
 
@@ -128,6 +128,28 @@ uv run agent-evals run examples/ticket-classification/suite.yaml \
 flowchart LR
   live[Live run<br/>real model, costs money] -- --record --> rec[recording.yaml<br/>committed to Git]
   rec -- --replay --> ci[CI on every push<br/>deterministic, free]
+```
+
+Replay returns what was recorded, so a changed prompt with an old recording would
+pass without the model ever seeing it. To prevent that, `--record` stores a
+fingerprint of the system prompt and the input of every case. When a replayed
+case no longer matches, it fails as **stale** and `run` exits `2`
+([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)):
+
+```console
+$ agent-evals run suite.yaml --replay recording.yaml
+FAIL ticket-classification: 8/10 passed (80%, threshold 90%) · replay · latency mean 0.0 ms, p95 0.0 ms · 1 stale
+  ⚠ delete-account: stale recording: the system prompt or input changed since this case was recorded; re-record with --record
+  ✗ refund-damaged: expected 'billing', got 'shipping'
+error: 1 stale case(s); results do not reflect the suite
+```
+
+Changing an expectation, a tag or the threshold never makes a recording stale.
+Recordings made before v0.4.0 have no fingerprints: they still replay, with a
+warning. Upgrade them without any API call (it refuses if a case is stale):
+
+```bash
+agent-evals run suite.yaml --replay old-recording.yaml --record recording.yaml
 ```
 
 ### Comparing two runs
@@ -150,8 +172,8 @@ FAIL ticket-classification: 1 regression, 1 fix · pass rate 90% → 90% (+0 pp)
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | No regressions (fixes, new cases and metric changes are reported only) |
-| `1` | At least one case that passed in the base run fails in the head run |
+| `0` | No regressions and no stale cases (fixes, new cases and metric changes are reported only) |
+| `1` | At least one case that passed in the base run fails in the head run, or a head case is stale |
 | `2` | A report could not be read, or the reports are for different suites |
 
 Use it to compare a prompt change against `main`, or two models on the same suite.
@@ -175,6 +197,7 @@ CI runs all of them on every push and publishes the Markdown report in the job s
 - [ADR 0004](docs/adr/0004-prices-are-user-supplied.md): token prices are supplied by the user, not hard-coded.
 - [ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md): `compare` fails on case regressions, not on metric deltas.
 - [ADR 0006](docs/adr/0006-multi-turn-cases-with-scripted-history.md): multi-turn cases script the history and score only the last answer.
+- [ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md): the PR comment action regenerates the base run, and recordings detect stale prompts.
 
 ## Roadmap
 
