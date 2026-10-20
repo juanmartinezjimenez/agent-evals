@@ -51,13 +51,48 @@ class JsonSchema(_Strict):
 Expectation = Annotated[ExactMatch | Contains | Regex | JsonSchema, Field(discriminator="type")]
 
 
+class Turn(_Strict):
+    """One message of a scripted conversation."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1)
+
+
 class Case(_Strict):
-    """One input sent to the model and what a correct answer looks like."""
+    """One input sent to the model and what a correct answer looks like.
+
+    The input is either a single message (`input`) or a scripted conversation
+    (`turns`) whose last turn is from the user. Only the model's answer to that
+    last turn is scored (ADR 0006).
+    """
 
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
-    input: str = Field(min_length=1)
+    input: str | None = Field(default=None, min_length=1)
+    turns: list[Turn] | None = Field(default=None, min_length=1)
     expect: Expectation
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _valid_conversation(self) -> Case:
+        if (self.input is None) == (self.turns is None):
+            raise ValueError("a case needs exactly one of 'input' or 'turns'")
+        for number, turn in enumerate(self.turns or [], start=1):
+            expected = "user" if number % 2 else "assistant"
+            if turn.role != expected:
+                raise ValueError(
+                    f"turn {number} must be from the {expected}: "
+                    "turns start with the user and alternate roles"
+                )
+        if self.turns and self.turns[-1].role != "user":
+            raise ValueError("the last turn must be from the user")
+        return self
+
+    @property
+    def messages(self) -> tuple[Turn, ...]:
+        """The conversation sent to the model; `input` is a single user turn."""
+        if self.turns is not None:
+            return tuple(self.turns)
+        return (Turn(role="user", content=self.input or ""),)
 
 
 class Suite(_Strict):
