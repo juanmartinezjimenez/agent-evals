@@ -3,8 +3,50 @@ from pathlib import Path
 import pytest
 
 from agent_evals.models import Suite
-from agent_evals.providers import MissingRecordingError, ReplayProvider
+from agent_evals.providers import (
+    STALE_REASON,
+    MissingRecordingError,
+    ReplayProvider,
+    write_recording,
+)
+from agent_evals.providers.replay import NO_FINGERPRINTS_WARNING
 from agent_evals.runner import run_suite
+
+
+def _mini(second_input: str) -> Suite:
+    return Suite.model_validate(
+        {
+            "name": "mini",
+            "system": "Answer yes.",
+            "cases": [
+                {"id": "same", "input": "Q1", "expect": {"type": "exact", "value": "yes"}},
+                {
+                    "id": "changed",
+                    "input": second_input,
+                    "expect": {"type": "exact", "value": "yes"},
+                },
+            ],
+        }
+    )
+
+
+def test_stale_case_fails_without_counting_latency_or_usage(tmp_path: Path) -> None:
+    path = tmp_path / "rec.yaml"
+    write_recording(path, _mini("old Q2"), {"same": "yes", "changed": "yes"})
+
+    run = run_suite(_mini("new Q2"), ReplayProvider.from_yaml(path))
+
+    assert (run.passed, run.stale, run.errors) == (1, 1, 0)
+    stale = next(r for r in run.results if r.stale)
+    assert stale.case_id == "changed"
+    assert stale.reason == STALE_REASON
+    assert not stale.measured
+    assert run.warnings == ()
+
+
+def test_old_recordings_carry_their_warning_into_the_run() -> None:
+    old = ReplayProvider({"same": "yes", "changed": "yes"})
+    assert run_suite(_mini("Q2"), old).warnings == (NO_FINGERPRINTS_WARNING,)
 
 
 def _load(examples_dir: Path, name: str) -> tuple[Suite, ReplayProvider]:

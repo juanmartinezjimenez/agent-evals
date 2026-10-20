@@ -104,7 +104,8 @@ def _execute(args: argparse.Namespace) -> RunResult:
     run = run_suite(suite, provider, threshold=args.threshold, pricing=_pricing(args))
 
     if args.record:
-        write_recording(args.record, {r.case_id: r.output for r in run.results if not r.error})
+        outputs = {r.case_id: r.output for r in run.results if not r.error}
+        write_recording(args.record, suite, outputs, provider=provider.name, model=run.model)
     return run
 
 
