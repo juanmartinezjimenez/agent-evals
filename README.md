@@ -178,6 +178,61 @@ FAIL ticket-classification: 1 regression, 1 fix · pass rate 90% → 90% (+0 pp)
 
 Use it to compare a prompt change against `main`, or two models on the same suite.
 
+### On every pull request (GitHub Action)
+
+The repository is also a GitHub Action. On each pull request it replays a suite
+on the PR and on the PR's base commit, compares them and keeps **one comment per
+suite** up to date. It needs no API key and only two permissions
+([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)).
+
+```yaml
+# .github/workflows/evals.yml
+name: Evals
+
+on:
+  pull_request:
+    paths: ["evals/**", "prompts/**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: evals-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [support-triage, booking-assistant]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: juanmartinezjimenez/agent-evals@v0.4.0
+        with:
+          suite: evals/${{ matrix.suite }}/suite.yaml
+          replay: evals/${{ matrix.suite }}/recording.yaml
+```
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `suite` | required | Suite file, relative to the repository root |
+| `replay` | required | Recording to replay; the same path is used on the base commit |
+| `fail-on-regression` | `true` | Fail the step when a case that passed on the base fails on the PR |
+| `comment` | `true` | Create or update the PR comment |
+
+Outputs: `regressions`, `fixes`, `stale` and `report` (path to the Markdown report).
+
+- The step fails on stale recordings even with `fail-on-regression: false`: re-record
+  the changed cases with a live run and push the recording.
+- A suite that does not exist on the base commit is reported as new, without a comparison.
+- It runs only on `pull_request`. `pull_request_target` is refused, because it would
+  run the PR's code with a write token and secrets. PRs from forks get the report in
+  the job summary but no comment, since GitHub gives them a read-only token.
+- This repository runs the action on its own example suites in CI.
+
 ## Examples
 
 All suites use synthetic data only.
