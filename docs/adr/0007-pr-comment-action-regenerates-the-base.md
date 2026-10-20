@@ -1,6 +1,6 @@
 # 0007. A composite action that regenerates the base run and keeps one PR comment
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-20
 
 ## Context
@@ -26,6 +26,11 @@ summary and fails the step when there is a regression. It runs only on the
 `pull_request` event with a read-only token plus `pull-requests: write`, and it
 never needs an API key.
 
+Because replay compares recordings and not the model, recordings carry a
+**fingerprint of what was sent to the model** for each case, and a replayed case
+whose prompt or input changed after it was recorded **fails as stale** instead
+of returning an old answer. Without this, the action would be unsafe to rely on.
+
 ### Where the base report comes from
 
 The action checks out `github.event.pull_request.base.sha` into a separate
@@ -46,6 +51,85 @@ If the suite file does not exist at the base commit (a new suite), the action
 skips `compare`, posts the `run` report and says the suite is new. If the suite
 exists in both but `compare` cannot read the reports (exit `2`, e.g. the suite
 was renamed), the action fails with the error instead of guessing.
+
+### Stale recordings
+
+**Why it is necessary.** Replay returns whatever was recorded for a case id. If
+a PR changes the system prompt or the input of a case (`input` or `turns`) and
+does not re-record, the head run replays answers the model gave to the *old*
+prompt, scores them against the new suite and usually passes. `compare` then
+reports "0 regressions" for a change nobody evaluated: a false green on exactly
+the kind of PR the action exists to check. A regression gate that can be passed
+by forgetting a step is worse than no gate, because it looks authoritative. So
+replay must refuse answers that were recorded for something else.
+
+**What is recorded.** `--record` writes format version 2. Next to each output it
+stores a fingerprint of what the model received for that case:
+
+```yaml
+# Recorded by agent-evals. Replay with: agent-evals run SUITE --replay THIS_FILE
+version: 2
+provider: anthropic
+model: claude-haiku-5-5
+cases:
+  double-charge:
+    fingerprint: sha256:3f9a1c0b7d2e4a65
+    output: billing
+  confirm-chosen-slot:
+    fingerprint: sha256:9b04e7d15a2c8f31
+    output: You're booked for Thursday at 17:30, Laura Pérez.
+```
+
+The fingerprint is the first 16 hex characters of the SHA-256 of the canonical
+JSON (sorted keys, no extra whitespace, UTF-8) of
+`{"system": <suite system prompt>, "messages": <case.messages>}`. It covers
+exactly what the provider sends (ADR 0006): a case written as `input: "x"` and
+the same case written as one user turn have the same fingerprint. It does
+**not** cover `expect` or `tags`, because changing what counts as correct must
+re-score the same answer, not force a new live run. `provider` and `model` are
+stored for traceability and are not checked.
+
+**What replay does.** For every case it recomputes the fingerprint from the
+current suite and compares it with the recorded one:
+
+| Situation | Result |
+| --- | --- |
+| Fingerprints match | Normal replay |
+| Fingerprints differ | The case fails with `stale recording: the system prompt or input changed since this case was recorded; re-record with --record`. It is marked `stale` in the JSON report, and `run` exits `2` (the recording does not match the suite) after writing its reports |
+| Recording in the old format (version 1, a flat `case id: output` mapping, as written by v0.1–v0.3) | Replays as before, with one warning per run on stderr and in the reports: `recording has no fingerprints; changes to prompts or inputs cannot be detected; re-record with --record` |
+
+`compare` lists stale cases of the head run in their own section and fails
+(exit `1`) when there is any, even if no case regressed, because a stale case
+says nothing about the model.
+
+**Upgrading old recordings without an API call.** `--record` is also accepted
+with `--replay`: it rewrites the outputs that were replayed in format version 2,
+fingerprinted against the current suite and keeping the original `provider` and
+`model` when the source has them. It refuses to write anything if any case is
+stale, so it can never stamp a new fingerprint on an old answer. For a version 1
+recording there is nothing to check against: upgrading it asserts that the
+outputs belong to the current suite, which is the author's responsibility. The
+example recordings of this repository are upgraded this way, with no API calls.
+
+**In the PR comment.** Stale cases go first, above the metrics, because the rest
+of the comment cannot be trusted until they are fixed:
+
+```markdown
+## workshop-booking: base vs head
+
+**❌ FAIL** · 0 regressions, 0 fixes · ⚠️ 2 stale recordings · `replay` → `replay`
+
+> ⚠️ **2 cases replayed answers recorded for a different prompt or input.**
+> Their results say nothing about the current suite. Re-record them with a live run
+> (`agent-evals run SUITE --provider ... --model ... --record RECORDING`) and push the recording.
+>
+> - `confirm-chosen-slot`
+> - `correction-wins`
+```
+
+A version 1 recording adds a one-line notice under the header
+(`ℹ️ recording without fingerprints: changes to prompts or inputs are not
+detected`), and the action step fails when the head run has stale cases.
 
 ### Composite, not JavaScript
 
@@ -154,6 +238,11 @@ Inputs: `suite` and `replay` (paths, the same in the base and the PR),
 | `pull_request_target` to comment on fork PRs | Runs untrusted PR code with a write token and secrets |
 | Live model runs on every PR | Costs money on each push, needs secrets, is not deterministic, and does not work on fork PRs |
 | A separate `agent-evals-action` repository | The action and the CLI would be versioned apart and could drift; one tag (`v0.4.0`) now pins both |
+| Replay without stale detection | Prompt or input changes without a new recording pass silently: a false green |
+| One hash of the whole suite file | Any edit, even to an expectation or a tag, would mark every case stale and force a full live run |
+| Store a full copy of each prompt and input in the recording | Duplicates the suite, bloats recordings with long conversations, and a hash detects the same changes |
+| Only warn on a stale case | The run would still pass, which is the false green this exists to prevent |
+| Fail old recordings without fingerprints | Breaks every v0.1–v0.3 user at once; a warning plus a no-API upgrade path is enough |
 
 ## Consequences
 
@@ -165,3 +254,11 @@ action; that is consistent with the record → replay loop (ADR 0002). Because
 the action lives in this repository, each release tag must keep `action.yml`
 working, and the CI of this repository will run the action against its own
 example suites.
+
+With fingerprints, a green comment means the replayed answers belong to the
+prompts and inputs in the PR. Any change to a system prompt or a case input now
+requires a live run with `--record` before the PR can pass, which is a real cost
+per prompt change but the only honest one. Edits that do not change what the
+model receives (expectations, tags, thresholds) never require it. Whitespace
+inside prompts counts as a change. The recording format moves to version 2;
+version 1 keeps working with a warning until a future major version.
