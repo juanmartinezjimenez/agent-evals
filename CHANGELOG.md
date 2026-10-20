@@ -11,6 +11,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `agent-evals compare BASE HEAD`: compares two `run --json` reports case by case and lists regressions, fixes, added and removed cases with the change in pass rate, latency and cost. Exits 1 when any case that passed now fails ([ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md)).
 - `compare --markdown` writes the comparison as a Markdown report.
 - Example recording `recording-new-prompt.yaml` for ticket classification: same 9/10 pass rate, one regression.
+- Multi-turn cases: `turns` (scripted `user` / `assistant` messages) instead of `input`. Only the answer to the last user turn is scored; recordings stay keyed by case id ([ADR 0006](docs/adr/0006-multi-turn-cases-with-scripted-history.md)).
+- `Case.messages`: every case's input as a conversation; a single `input` is one user turn.
+- Example suite `workshop-booking`: five conversations and one single message, run in CI.
+
+### Changed
+
+- Providers must read `case.messages` instead of `case.input`, which is `None` for multi-turn cases. Custom providers need the same change; the `Provider` signature is unchanged.
+- The OpenAI provider sends `input` as a list of messages, also for single-message cases (equivalent request).
 
 ### Fixed
 
