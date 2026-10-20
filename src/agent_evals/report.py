@@ -35,15 +35,40 @@ def summary_line(run: RunResult) -> str:
         pieces.append(usage)
     if run.errors:
         pieces.append(f"{run.errors} provider errors")
+    if run.stale:
+        pieces.append(f"{run.stale} stale")
     return " · ".join(pieces)
 
 
+def _stale_notice(case_ids: list[str]) -> list[str]:
+    """Blockquote listing stale cases; goes above the metrics because they cannot be trusted."""
+    n = len(case_ids)
+    return [
+        f"> ⚠️ **{n} case{'' if n == 1 else 's'} replayed answers recorded for a different "
+        "prompt or input.**",
+        "> Their results say nothing about the current suite. Re-record them with a live run",
+        "> (`agent-evals run SUITE --provider ... --model ... --record RECORDING`) "
+        "and push the recording.",
+        ">",
+        *[f"> - `{case_id}`" for case_id in case_ids],
+        "",
+    ]
+
+
+def _warning_notice(warnings: list[str] | tuple[str, ...]) -> list[str]:
+    return [*(f"> **Note:** {w}" for w in warnings), ""] if warnings else []
+
+
 def to_markdown(run: RunResult) -> str:
+    stale = f" · ⚠️ {run.stale} stale" if run.stale else ""
     header = (
         f"**{'✅ PASS' if run.ok else '❌ FAIL'}** · {run.passed}/{run.total} passed "
-        f"({run.pass_rate:.0%}) · threshold {run.threshold:.0%} · `{_target(run)}`"
+        f"({run.pass_rate:.0%}) · threshold {run.threshold:.0%}{stale} · `{_target(run)}`"
     )
     lines = [f"## {run.suite}", "", header, ""]
+    if run.stale:
+        lines += _stale_notice([r.case_id for r in run.results if r.stale])
+    lines += _warning_notice(run.warnings)
 
     metrics = [
         ("Mean latency", f"{run.mean_latency_ms:.1f} ms"),
@@ -82,6 +107,8 @@ def to_json(run: RunResult) -> str:
         "passed": run.passed,
         "total": run.total,
         "errors": run.errors,
+        "stale": run.stale,
+        "warnings": list(run.warnings),
         "pass_rate": run.pass_rate,
         "ok": run.ok,
         "mean_latency_ms": run.mean_latency_ms,
@@ -129,7 +156,7 @@ def comparison_summary(c: Comparison) -> str:
     """One headline plus one line per changed case, for the terminal."""
     verdict = "PASS" if c.ok else "FAIL"
     pieces = [
-        f"{verdict} {c.head.suite}: {_changes(c)}",
+        f"{verdict} {c.head.suite}: {_changes(c)}" + (f", {len(c.stale)} stale" if c.stale else ""),
         f"pass rate {c.base.pass_rate:.0%} → {c.head.pass_rate:.0%} ({_pp(c)})",
         f"{c.base.target} → {c.head.target}",
         f"latency mean {c.base.mean_latency_ms:.1f} → {c.head.mean_latency_ms:.1f} ms, "
@@ -139,6 +166,7 @@ def comparison_summary(c: Comparison) -> str:
         pieces.append(f"cost ${c.base.cost_usd:.4f} → ${c.head.cost_usd:.4f}")
 
     lines = [" · ".join(pieces)]
+    lines += [f"  ⚠ {r.case_id}: {r.reason}" for r in c.stale]
     lines += [f"  ✗ {r.case_id}: {r.reason}" for r in c.regressions]
     lines += [f"  ✓ {f.case_id}: fixed" for f in c.fixes]
     lines += [
@@ -150,11 +178,18 @@ def comparison_summary(c: Comparison) -> str:
 
 
 def comparison_to_markdown(c: Comparison) -> str:
+    changes = _changes(c)
+    if c.stale:
+        n = len(c.stale)
+        changes += f" · ⚠️ {n} stale recording{'' if n == 1 else 's'}"
     header = (
-        f"**{'✅ PASS' if c.ok else '❌ FAIL'}** · {_changes(c)} · "
+        f"**{'✅ PASS' if c.ok else '❌ FAIL'}** · {changes} · "
         f"`{c.base.target}` → `{c.head.target}`"
     )
     lines = [f"## {c.head.suite}: base vs head", "", header, ""]
+    if c.stale:
+        lines += _stale_notice([r.case_id for r in c.stale])
+    lines += _warning_notice(c.head.warnings)
 
     rows = [
         ("Pass rate", _rate(c.base), _rate(c.head), _pp(c)),

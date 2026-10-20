@@ -84,10 +84,37 @@ def test_invalid_pricing_exits_two(
     assert message in capsys.readouterr().err
 
 
-def test_record_with_replay_is_rejected(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
-    args = ["run", str(TICKETS / "suite.yaml"), "--replay", str(TICKETS / "recording.yaml")]
-    assert main([*args, "--record", str(tmp_path / "x.yaml")]) == EXIT_CONFIG_ERROR
-    assert "live provider" in capsys.readouterr().err
+def test_record_with_replay_upgrades_an_old_recording(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    old = tmp_path / "old.yaml"
+    old.write_text("".join(f"{k}: {v}\n" for k, v in CORRECT.items()), encoding="utf-8")
+    new = tmp_path / "new.yaml"
+    suite = str(TICKETS / "suite.yaml")
+
+    assert main(["run", suite, "--replay", str(old), "--record", str(new)]) == EXIT_OK
+    assert "no fingerprints" in capsys.readouterr().err
+
+    upgraded = ReplayProvider.from_yaml(new)
+    assert upgraded.warnings == ()
+    assert main(["run", suite, "--replay", str(new)]) == EXIT_OK
+    assert capsys.readouterr().err == ""
+
+
+def test_record_with_replay_refuses_to_stamp_stale_answers(
+    live: dict[str, Any], capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    edited = tmp_path / "suite.yaml"
+    original = (TICKETS / "suite.yaml").read_text(encoding="utf-8")
+    edited.write_text(original.replace("support triage", "billing triage"), encoding="utf-8")
+    recording = tmp_path / "rec.yaml"
+    assert main(_live_args("--record", str(recording))) == EXIT_OK  # fingerprints for the original
+
+    target = tmp_path / "upgraded.yaml"
+    args = ["run", str(edited), "--replay", str(recording), "--record", str(target)]
+    assert main(args) == EXIT_CONFIG_ERROR
+    assert "not recording: 10 stale case(s)" in capsys.readouterr().err
+    assert not target.exists()
 
 
 def test_no_source_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:

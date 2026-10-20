@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class _Report(BaseModel):
@@ -17,6 +17,7 @@ class CaseReport(_Report):
     case_id: str
     passed: bool
     reason: str
+    stale: bool = False  # reports before v0.4.0 have no stale cases
 
 
 class RunReport(_Report):
@@ -33,6 +34,7 @@ class RunReport(_Report):
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd: float | None = None
+    warnings: list[str] = Field(default_factory=list)
     results: list[CaseReport]
 
     @property
@@ -58,23 +60,28 @@ class Comparison:
     fixes: tuple[CaseChange, ...]  # failed in base, passes in head; reason from base
     added: tuple[CaseReport, ...]
     removed: tuple[CaseReport, ...]
+    stale: tuple[CaseReport, ...] = ()  # stale in head: the replayed answer is for an old prompt
 
     @property
     def ok(self) -> bool:
-        return not self.regressions
+        return not self.regressions and not self.stale
 
 
 def compare(base: RunReport, head: RunReport) -> Comparison:
-    """Match cases by id. Only regressions make the comparison fail.
+    """Match cases by id. Regressions and stale cases make the comparison fail.
 
-    Raises ValueError when the reports belong to different suites.
+    A case that is stale in either report says nothing about the model, so it is
+    never counted as a regression or a fix (ADR 0007). Raises ValueError when the
+    reports belong to different suites.
     """
     if base.suite != head.suite:
         raise ValueError(f"reports are for different suites: {base.suite!r} vs {head.suite!r}")
 
     before = {r.case_id: r for r in base.results}
     after = {r.case_id: r for r in head.results}
-    common = [r for r in head.results if r.case_id in before]
+    common = [
+        r for r in head.results if r.case_id in before and not (r.stale or before[r.case_id].stale)
+    ]
 
     return Comparison(
         base=base,
@@ -91,4 +98,5 @@ def compare(base: RunReport, head: RunReport) -> Comparison:
         ),
         added=tuple(r for r in head.results if r.case_id not in before),
         removed=tuple(r for r in base.results if r.case_id not in after),
+        stale=tuple(r for r in head.results if r.stale),
     )
