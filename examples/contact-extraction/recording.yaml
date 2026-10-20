@@ -1,10 +1,26 @@
 # Recorded outputs for suite.yaml, keyed by case id.
 # `fenced-json` is wrapped in a code fence (accepted); `two-people` picks the wrong person.
-quote-request: '{"name": "Laura Pérez", "email": "laura.perez@example.com", "intent": "quote"}'
-booking-no-email: '{"name": "Marc Soler", "email": null, "intent": "booking"}'
-complaint: '{"name": "Ana Ruiz", "email": "ana.ruiz@example.org", "intent": "complaint"}'
-fenced-json: |
-  ```json
-  {"name": "Hugo", "email": "hugo@example.net", "intent": "other"}
-  ```
-two-people: '{"name": "Irene", "email": "pablo.gil@example.com", "intent": "quote"}'
+# Format 2: each case stores a fingerprint of its system prompt and input (ADR 0007).
+version: 2
+cases:
+  quote-request:
+    fingerprint: sha256:a6c96471cce2c440
+    output: '{"name": "Laura Pérez", "email": "laura.perez@example.com", "intent": "quote"}'
+  booking-no-email:
+    fingerprint: sha256:e689cd1eaeca883e
+    output: '{"name": "Marc Soler", "email": null, "intent": "booking"}'
+  complaint:
+    fingerprint: sha256:36d753953a906e58
+    output: '{"name": "Ana Ruiz", "email": "ana.ruiz@example.org", "intent": "complaint"}'
+  fenced-json:
+    fingerprint: sha256:a0d8a0a3aaf87553
+    output: '```json
+
+      {"name": "Hugo", "email": "hugo@example.net", "intent": "other"}
+
+      ```
+
+      '
+  two-people:
+    fingerprint: sha256:578fe509f58180df
+    output: '{"name": "Irene", "email": "pablo.gil@example.com", "intent": "quote"}'

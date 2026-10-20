@@ -1,12 +1,35 @@
 # Recorded outputs for suite.yaml, keyed by case id.
 # One answer is deliberately wrong to show how failures are reported.
-double-charge: billing
-invoice-copy: Billing
-app-crash: technical
-sync-error: technical
-password-reset: account
-change-email: account
-delete-account: account
-late-parcel: shipping
-wrong-address: shipping
-refund-damaged: shipping
+# Format 2: each case stores a fingerprint of its system prompt and input (ADR 0007).
+version: 2
+cases:
+  double-charge:
+    fingerprint: sha256:3ca205692ed0b6d2
+    output: billing
+  invoice-copy:
+    fingerprint: sha256:a73d0a6ad36e5547
+    output: Billing
+  app-crash:
+    fingerprint: sha256:15d577bef2d82ea6
+    output: technical
+  sync-error:
+    fingerprint: sha256:77a71973c0ada1fd
+    output: technical
+  password-reset:
+    fingerprint: sha256:9b8fe057e80a4fe7
+    output: account
+  change-email:
+    fingerprint: sha256:f15cf3c5dde96d35
+    output: account
+  delete-account:
+    fingerprint: sha256:d42e50d8a264dff5
+    output: account
+  late-parcel:
+    fingerprint: sha256:ca5cf5fb90d5d426
+    output: shipping
+  wrong-address:
+    fingerprint: sha256:074c9c4d8eed98ed
+    output: shipping
+  refund-damaged:
+    fingerprint: sha256:cd13040f4108e1db
+    output: shipping
