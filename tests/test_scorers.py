@@ -1,7 +1,7 @@
 import pytest
 
-from agent_evals.models import Contains, ExactMatch, JsonSchema, Regex
-from agent_evals.scorers import score
+from agent_evals.models import Contains, ExactMatch, Expectation, JsonSchema, Regex
+from agent_evals.scorers import Answer, score, score_case
 
 SCHEMA = {
     "type": "object",
@@ -65,3 +65,27 @@ def test_json_schema_failures_explain_why(output: str, reason: str) -> None:
     result = score(_json({"name": "Laura"}), output)
     assert not result.passed
     assert reason in result.reason
+
+
+def test_a_list_of_expectations_must_all_pass() -> None:
+    expectations: list[Expectation] = [
+        Contains(type="contains", values=["lentils"]),
+        Regex(type="regex", pattern=r"(?i)lemon"),
+    ]
+    passed = score_case(expectations, Answer("Lentils, cumin and a squeeze of lemon."))
+    assert passed.passed
+    assert passed.reason == "contains all 1 values; pattern matched"
+
+    failed = score_case(expectations, Answer("Lentils with onion."))
+    assert not failed.passed
+    assert failed.reason == "no match for /(?i)lemon/"
+
+
+def test_every_failure_is_listed() -> None:
+    expectations: list[Expectation] = [
+        Contains(type="contains", values=["lentils"]),
+        Regex(type="regex", pattern="lemon"),
+    ]
+    assert score_case(expectations, Answer("soup")).reason == (
+        "missing ['lentils']; no match for /lemon/"
+    )

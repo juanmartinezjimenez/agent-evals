@@ -9,7 +9,7 @@ from statistics import mean, quantiles
 from agent_evals.models import Suite
 from agent_evals.pricing import Pricing
 from agent_evals.providers import STALE_REASON, Provider, ProviderCallError, StaleRecordingError
-from agent_evals.scorers import score
+from agent_evals.scorers import Answer, score_case
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +156,7 @@ def run_suite(
             )
             continue
 
-        verdict = score(case.expect, completion.text)
+        verdict = score_case(case.expectations, Answer(completion.text), suite.tools)
         results.append(
             CaseResult(
                 case_id=case.id,
