@@ -9,7 +9,7 @@ import httpx2
 import openai
 import pytest
 
-from agent_evals.models import Case, Suite
+from agent_evals.models import Case, Suite, Tool, ToolCall
 from agent_evals.providers import (
     ProviderCallError,
     ProviderSetupError,
@@ -315,8 +315,13 @@ def test_old_flat_recordings_replay_with_a_warning(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "version: 3\ncases: {}\n",
+        "version: 4\ncases: {}\n",
         "version: 2\ncases:\n  a: {output: hi}\n",
+        # A tool_call only exists in version 3, and it needs name and arguments.
+        "version: 2\ncases:\n  a: {fingerprint: 'sha256:0123456789abcdef', output: hi,"
+        " tool_call: null}\n",
+        "version: 3\ncases:\n  a: {fingerprint: 'sha256:0123456789abcdef', output: hi,"
+        " tool_call: {name: x}}\n",
         "version: 2\ncases:\n  a: {fingerprint: 'md5:123', output: hi}\n",
         "version: 2\ncases: {}\nextra: field\n",
     ],
@@ -356,3 +361,110 @@ def test_fingerprint_normalizes_line_breaks_in_any_text() -> None:
     assert fingerprint("a\nb", lf) == fingerprint("a\r\nb", _case("a", "line one\r\nline two"))
     assert fingerprint("a\nb", lf) == fingerprint("a\rb", _case("a", "line one\rline two"))
     assert fingerprint("a\nb", lf) != fingerprint("a b", lf)
+
+
+# --- Tools (ADR 0008) --------------------------------------------------------
+
+TOOL = Tool.model_validate(
+    {
+        "name": "tasks_add",
+        "description": "Add an open task.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+            "required": ["title"],
+        },
+    }
+)
+
+
+def test_openai_sends_tools_with_auto_choice_one_call_and_no_strict_mode() -> None:
+    response = SimpleNamespace(
+        output_text="I'll add it.",
+        output=[
+            SimpleNamespace(type="message"),
+            SimpleNamespace(
+                type="function_call", name="tasks_add", arguments='{"title": "Renew"}', call_id="c1"
+            ),
+            SimpleNamespace(
+                type="function_call", name="tasks_add", arguments='{"title": "Other"}', call_id="c2"
+            ),
+        ],
+        usage=_usage(120, 15),
+    )
+    client, endpoint = _openai(response)
+    completion = OpenAIProvider("gpt-test", client=client).complete("Be brief.", CASE, [TOOL])
+
+    sent = endpoint.calls[0]
+    assert sent["tools"] == [
+        {
+            "type": "function",
+            "name": "tasks_add",
+            "description": "Add an open task.",
+            "parameters": TOOL.input_schema,
+            "strict": False,
+        }
+    ]
+    assert sent["parallel_tool_calls"] is False
+    assert "tool_choice" not in sent  # the API default, "auto"
+    assert completion.text == "I'll add it."
+    assert completion.tool_call == ToolCall("tasks_add", {"title": "Renew"})  # the first one
+
+
+def test_openai_keeps_unparseable_arguments_as_text() -> None:
+    call = SimpleNamespace(
+        type="function_call", name="tasks_add", arguments="{title: oops", call_id="c"
+    )
+    client, _ = _openai(SimpleNamespace(output_text="", output=[call], usage=None))
+    completion = OpenAIProvider("gpt-test", client=client).complete("", CASE, [TOOL])
+    assert completion.tool_call == ToolCall("tasks_add", "{title: oops")
+
+
+def test_openai_without_tools_sends_no_tool_fields_and_no_call() -> None:
+    client, endpoint = _openai(SimpleNamespace(output_text="shipping", usage=None))
+    completion = OpenAIProvider("gpt-test", client=client).complete("", CASE)
+    assert "tools" not in endpoint.calls[0]
+    assert "parallel_tool_calls" not in endpoint.calls[0]
+    assert completion.tool_call is None
+
+
+def test_anthropic_sends_tools_with_auto_choice_and_one_call() -> None:
+    message = SimpleNamespace(
+        content=[
+            SimpleNamespace(type="thinking", thinking="..."),
+            SimpleNamespace(type="text", text="I'll add that task."),
+            SimpleNamespace(type="tool_use", id="t1", name="tasks_add", input={"title": "Renew"}),
+            SimpleNamespace(type="text", text=" Done soon."),
+        ],
+        usage=_usage(300, 40),
+    )
+    client, endpoint = _anthropic(message)
+    completion = AnthropicProvider("claude-test", client=client).complete("Be brief.", CASE, [TOOL])
+
+    sent = endpoint.calls[0]
+    assert sent["tools"] == [
+        {"name": "tasks_add", "description": "Add an open task.", "input_schema": TOOL.input_schema}
+    ]
+    assert sent["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert completion.text == "I'll add that task. Done soon."
+    assert completion.tool_call == ToolCall("tasks_add", {"title": "Renew"})
+
+
+def test_anthropic_without_tools_sends_no_tool_fields_and_no_call() -> None:
+    client, endpoint = _anthropic(
+        SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")], usage=_usage(1, 1))
+    )
+    completion = AnthropicProvider("claude-test", client=client).complete("", CASE)
+    assert "tools" not in endpoint.calls[0]
+    assert "tool_choice" not in endpoint.calls[0]
+    assert completion.tool_call is None
+
+
+def test_a_tool_without_description_is_sent_without_one() -> None:
+    bare = Tool.model_validate({"name": "ping", "input_schema": {"type": "object"}})
+    client, endpoint = _openai(SimpleNamespace(output_text="", output=[], usage=None))
+    OpenAIProvider("gpt-test", client=client).complete("", CASE, [bare])
+    assert "description" not in endpoint.calls[0]["tools"][0]
+    client, endpoint = _anthropic(SimpleNamespace(content=[], usage=_usage(1, 0)))
+    AnthropicProvider("claude-test", client=client).complete("", CASE, [bare])
+    assert "description" not in endpoint.calls[0]["tools"][0]

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from agent_evals.models import Case
+from agent_evals.models import Case, Tool, ToolCall
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,14 +15,19 @@ class Completion:
     latency_ms: float
     input_tokens: int | None = None
     output_tokens: int | None = None
+    tool_call: ToolCall | None = None  # the first call, never executed (ADR 0008)
 
 
 class Provider(Protocol):
-    """Answers the last user turn of `case.messages`; never read `case.input` directly."""
+    """Answers the last user turn of `case.messages`; never read `case.input` directly.
+
+    `tools` are the suite's tool definitions; a provider offers them to the model
+    and returns its first call, if any. Suites without tools pass none.
+    """
 
     name: str
 
-    def complete(self, system: str, case: Case) -> Completion: ...
+    def complete(self, system: str, case: Case, tools: Sequence[Tool] = ()) -> Completion: ...
 
 
 def chat_messages(case: Case) -> list[dict[str, str]]:
