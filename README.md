@@ -178,12 +178,17 @@ FAIL ticket-classification: 1 regression, 1 fix · pass rate 90% → 90% (+0 pp)
 
 Use it to compare a prompt change against `main`, or two models on the same suite.
 
-### On every pull request (GitHub Action)
+## Use it in your repo
 
-The repository is also a GitHub Action. On each pull request it replays a suite
-on the PR and on the PR's base commit, compares them and keeps **one comment per
-suite** up to date. It needs no API key and only two permissions
-([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)).
+This repository is also a GitHub Action. On each pull request it replays your
+suite on the PR and on the PR's base commit, compares both runs and keeps **one
+comment per suite** up to date with the result. It needs no API key and only two
+permissions ([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)).
+
+What your repository needs: a suite file and a recording made with `--record`
+(see [Against a real model](#against-a-real-model)), both committed. When a PR
+changes a prompt or an input, re-record those cases and commit the recording in
+the same PR; otherwise the action reports them as stale.
 
 ```yaml
 # .github/workflows/evals.yml
@@ -228,10 +233,39 @@ Outputs: `regressions`, `fixes`, `stale` and `report` (path to the Markdown repo
 - The step fails on stale recordings even with `fail-on-regression: false`: re-record
   the changed cases with a live run and push the recording.
 - A suite that does not exist on the base commit is reported as new, without a comparison.
-- It runs only on `pull_request`. `pull_request_target` is refused, because it would
-  run the PR's code with a write token and secrets. PRs from forks get the report in
-  the job summary but no comment, since GitHub gives them a read-only token.
 - This repository runs the action on its own example suites in CI.
+
+### Pin it by commit SHA
+
+A tag such as `v0.4.0` can be moved; a commit SHA cannot. GitHub recommends pinning
+third-party actions by SHA, and this action already pins the ones it uses. Look up
+the commit of the release and keep the tag as a comment:
+
+```bash
+git ls-remote https://github.com/juanmartinezjimenez/agent-evals refs/tags/v0.4.0
+```
+
+```yaml
+      - uses: juanmartinezjimenez/agent-evals@<commit-sha> # v0.4.0
+```
+
+### Minimum permissions
+
+| Permission | Why |
+| --- | --- |
+| `contents: read` | Check out the PR and its base commit |
+| `pull-requests: write` | Create and update the comment (GitHub also accepts `issues: write` for it) |
+
+Nothing else is needed: no `actions`, no `issues`, no secrets. Set them at the
+workflow or job level as in the example, so the default token gets no more.
+
+### Pull requests from forks
+
+GitHub runs fork PRs with a read-only token and without secrets. The action still
+replays and compares both runs, writes the report to the job summary and fails the
+step on regressions or stale cases; it only skips the comment, with a notice in the
+log. It runs only on `pull_request`: `pull_request_target` is refused, because it
+would run the fork's code with a write token and access to your secrets.
 
 ## Examples
 
@@ -259,7 +293,8 @@ CI runs all of them on every push and publishes the Markdown report in the job s
 - [x] v0.1: YAML suites, replay provider, four deterministic scorers, CLI, reports
 - [x] v0.2: OpenAI and Anthropic providers, tokens, cost and p95 latency, recording real runs
 - [x] v0.3: comparing two runs to detect regressions, multi-turn conversation cases
-- [ ] v0.4: reusable GitHub Action that comments the report on pull requests
+- [x] v0.4: reusable GitHub Action that comments the report on pull requests, stale recording detection
+- [ ] v0.5: LLM-as-judge scorer with its agreement measured against human labels; tool call evaluation
 
 ## Development
 
