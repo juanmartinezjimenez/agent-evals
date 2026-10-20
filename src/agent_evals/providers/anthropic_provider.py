@@ -3,8 +3,9 @@
 Requires the optional dependency: `pip install "agent-evals[anthropic]"`.
 
 Current Claude models use adaptive thinking and the SDK no longer accepts a
-`temperature` argument, so none is sent. Responses can contain thinking blocks;
-only text blocks are scored.
+`temperature` argument, so none is sent. Responses can contain thinking blocks,
+which are ignored: the text is every text block, and the tool call (ADR 0008)
+is the first tool_use block.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from agent_evals.models import Case, Tool
+from agent_evals.models import Case, Tool, ToolCall
 from agent_evals.providers.base import (
     Completion,
     ProviderSetupError,
@@ -59,6 +60,18 @@ class AnthropicProvider:
         }
         if system:
             params["system"] = system
+        if tools:
+            # ADR 0008: "auto" (forced choice is rejected by several current
+            # models and would rule out "no tool" cases), one call at most.
+            params["tools"] = [
+                {
+                    "name": tool.name,
+                    **({"description": tool.description} if tool.description else {}),
+                    "input_schema": tool.input_schema,
+                }
+                for tool in tools
+            ]
+            params["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
 
         start = time.perf_counter()
         try:
@@ -74,4 +87,12 @@ class AnthropicProvider:
             latency_ms=latency_ms,
             input_tokens=getattr(usage, "input_tokens", None),
             output_tokens=getattr(usage, "output_tokens", None),
+            tool_call=next(
+                (
+                    ToolCall(block.name, block.input)
+                    for block in message.content
+                    if block.type == "tool_use"
+                ),
+                None,
+            ),
         )
