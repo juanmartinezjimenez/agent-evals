@@ -41,10 +41,11 @@ def summary_line(run: RunResult) -> str:
 
 
 def _stale_notice(case_ids: list[str]) -> list[str]:
-    """Blockquote listing stale cases; goes above the metrics because they cannot be trusted."""
+    """GitHub WARNING alert listing stale cases; goes above the metrics, which it invalidates."""
     n = len(case_ids)
     return [
-        f"> ⚠️ **{n} case{'' if n == 1 else 's'} replayed answers recorded for a different "
+        "> [!WARNING]",
+        f"> **{n} case{'' if n == 1 else 's'} replayed answers recorded for a different "
         "prompt or input.**",
         "> Their results say nothing about the current suite. Re-record them with a live run",
         "> (`agent-evals run SUITE --provider ... --model ... --record RECORDING`) "
@@ -56,7 +57,11 @@ def _stale_notice(case_ids: list[str]) -> list[str]:
 
 
 def _warning_notice(warnings: list[str] | tuple[str, ...]) -> list[str]:
-    return [*(f"> **Note:** {w}" for w in warnings), ""] if warnings else []
+    """One GitHub NOTE alert per run warning; a blank line keeps the alerts separate."""
+    lines: list[str] = []
+    for warning in warnings:
+        lines += ["> [!NOTE]", f"> {warning}", ""]
+    return lines
 
 
 def to_markdown(run: RunResult) -> str:
