@@ -331,3 +331,28 @@ def test_invalid_versioned_recordings_are_rejected(tmp_path: Path, body: str) ->
 def test_replay_answers_a_conversation_by_case_id() -> None:
     provider = ReplayProvider({"c2": "Booked for Thursday, Laura."})
     assert provider.complete("", CONVERSATION).text == "Booked for Thursday, Laura."
+
+
+def test_same_suite_with_lf_and_crlf_has_the_same_fingerprints(
+    examples_dir: Path, tmp_path: Path
+) -> None:
+    text = (examples_dir / "workshop-booking" / "suite.yaml").read_text(encoding="utf-8")
+    lf, crlf = tmp_path / "lf.yaml", tmp_path / "crlf.yaml"
+    lf.write_bytes(text.replace("\r\n", "\n").encode("utf-8"))
+    crlf.write_bytes(text.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
+    assert b"\r\n" in crlf.read_bytes()
+    assert b"\r\n" not in lf.read_bytes()
+
+    a, b = Suite.from_yaml(lf), Suite.from_yaml(crlf)
+
+    assert [fingerprint(a.system, c) for c in a.cases] == [
+        fingerprint(b.system, c) for c in b.cases
+    ]
+
+
+def test_fingerprint_normalizes_line_breaks_in_any_text() -> None:
+    # Quoted YAML strings and suites built in code keep \r, so it must not rely on the parser.
+    lf = _case("a", "line one\nline two")
+    assert fingerprint("a\nb", lf) == fingerprint("a\r\nb", _case("a", "line one\r\nline two"))
+    assert fingerprint("a\nb", lf) == fingerprint("a\rb", _case("a", "line one\rline two"))
+    assert fingerprint("a\nb", lf) != fingerprint("a b", lf)
