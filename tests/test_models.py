@@ -137,3 +137,12 @@ def test_empty_input_is_still_rejected() -> None:
     case = {"id": "a", "input": "", "expect": {"type": "exact", "value": "x"}}
     with pytest.raises(ValidationError):
         Suite.model_validate(_suite(cases=[case]))
+
+
+def test_workshop_example_mixes_conversations_and_single_messages(examples_dir: Path) -> None:
+    suite = Suite.from_yaml(examples_dir / "workshop-booking" / "suite.yaml")
+
+    conversations = [c for c in suite.cases if c.turns is not None]
+    assert len(conversations) == 5
+    assert all(len(c.messages) == 3 for c in conversations)
+    assert [c.id for c in suite.cases if c.input is not None] == ["opening-hours"]

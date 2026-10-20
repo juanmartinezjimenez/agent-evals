@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [ticket-classification, contact-extraction]
+        suite: [ticket-classification, contact-extraction, workshop-booking]
     steps:
       - uses: actions/checkout@v7
 

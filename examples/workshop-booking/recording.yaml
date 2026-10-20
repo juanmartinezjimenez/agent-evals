@@ -1,0 +1,9 @@
+# Recorded final answers for suite.yaml, keyed by case id.
+# Only the answer to the last user turn is recorded; earlier turns live in the suite.
+# One answer is deliberately wrong: it confirms a slot that does not exist.
+confirm-chosen-slot: You're booked for Thursday at 17:30, Laura Pérez. See you then!
+correction-wins: No problem, Marc. Your booking is now Thursday at 17:30.
+no-invented-slot: Sure, you're booked for Saturday at 11:00.
+total-from-earlier-price: A brake service plus a chain replacement comes to 55 euros.
+cancel-keeps-name: Done, Marc. I've cancelled your Thursday 17:30 booking.
+opening-hours: On Saturdays we open at 9:00 and close at 18:00.

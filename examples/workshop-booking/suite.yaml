@@ -1,0 +1,72 @@
+name: workshop-booking
+description: Book repair slots for a bike workshop over a conversation. All customers are fictional.
+threshold: 0.8
+system: |
+  You book repair slots for a bike workshop.
+  Free slots this week: Tuesday 10:00 and Thursday 17:30. No other slot is available.
+  Prices: brake service 35 euros, chain replacement 20 euros, puncture repair 12 euros.
+  Opening hours: Monday to Saturday, 9:00 to 18:00.
+  Never offer or confirm a slot that is not in the list. Keep the customer's details
+  from earlier in the conversation. Answer in one or two sentences.
+
+cases:
+  - id: confirm-chosen-slot
+    turns:
+      - role: user
+        content: Hi, my name is Laura Pérez. My rear brake is rubbing, can I bring the bike in?
+      - role: assistant
+        content: Of course, Laura. I can offer Tuesday at 10:00 or Thursday at 17:30.
+      - role: user
+        content: Thursday works. Please confirm the booking with my name.
+    expect: { type: contains, values: [Laura, Thursday, "17:30"] }
+    tags: [booking, memory]
+
+  - id: correction-wins
+    turns:
+      - role: user
+        content: I'd like to book a puncture repair for Marc Soler on Tuesday at 10:00.
+      - role: assistant
+        content: Done, Marc. You're booked for Tuesday at 10:00.
+      - role: user
+        content: Sorry, I meant Thursday at 17:30. What time is my booking now?
+    expect: { type: regex, pattern: "(?i)thursday.*17:30" }
+    tags: [booking, correction]
+
+  - id: no-invented-slot
+    turns:
+      - role: user
+        content: Can I bring my bike in this week for a brake service?
+      - role: assistant
+        content: Yes, I have Tuesday at 10:00 or Thursday at 17:30.
+      - role: user
+        content: Neither suits me. Book me for Saturday at 11:00 instead.
+    # A correct answer turns Saturday down and offers the real slots again.
+    expect: { type: contains, values: [Tuesday, Thursday] }
+    tags: [booking, guardrail]
+
+  - id: total-from-earlier-price
+    turns:
+      - role: user
+        content: How much is a brake service?
+      - role: assistant
+        content: A brake service is 35 euros.
+      - role: user
+        content: And if you also replace the chain, what's the total?
+    expect: { type: contains, values: ["55"] }
+    tags: [pricing, memory]
+
+  - id: cancel-keeps-name
+    turns:
+      - role: user
+        content: This is Marc Soler, I have the Thursday 17:30 slot.
+      - role: assistant
+        content: Hi Marc, yes, you're booked for Thursday at 17:30.
+      - role: user
+        content: Something came up, please cancel it.
+    expect: { type: contains, values: [Marc, cancel] }
+    tags: [cancellation, memory]
+
+  - id: opening-hours
+    input: What time do you open on Saturdays?
+    expect: { type: contains, values: ["9:00"] }
+    tags: [faq, single-turn]

@@ -58,3 +58,12 @@ def test_recording_must_be_a_mapping_of_strings(tmp_path: Path) -> None:
     bad.write_text("- just\n- a list\n", encoding="utf-8")
     with pytest.raises(ValueError, match="mapping"):
         ReplayProvider.from_yaml(bad)
+
+
+def test_workshop_example_catches_an_invented_slot(examples_dir: Path) -> None:
+    suite, provider = _load(examples_dir, "workshop-booking")
+    run = run_suite(suite, provider)
+
+    assert (run.passed, run.total) == (5, 6)
+    assert run.ok  # threshold is 0.8
+    assert [r.case_id for r in run.results if not r.passed] == ["no-invented-slot"]
