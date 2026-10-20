@@ -156,6 +156,7 @@ def _run(args: argparse.Namespace) -> int:
         args.markdown.write_text(to_markdown(run), encoding="utf-8")
 
     if run.stale:
+        sys.stdout.flush()  # keep the summary above the error when both go to one log
         print(
             f"error: {run.stale} stale case(s); results do not reflect the suite", file=sys.stderr
         )
