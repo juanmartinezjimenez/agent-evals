@@ -9,7 +9,12 @@ import time
 from typing import Any
 
 from agent_evals.models import Case
-from agent_evals.providers.base import Completion, ProviderSetupError, translate_api_error
+from agent_evals.providers.base import (
+    Completion,
+    ProviderSetupError,
+    chat_messages,
+    translate_api_error,
+)
 
 
 class OpenAIProvider:
@@ -42,7 +47,7 @@ class OpenAIProvider:
         self._client = client
 
     def complete(self, system: str, case: Case) -> Completion:
-        params: dict[str, Any] = {"model": self.model, "input": case.input}
+        params: dict[str, Any] = {"model": self.model, "input": chat_messages(case)}
         if system:
             params["instructions"] = system
         if self._temperature is not None:
