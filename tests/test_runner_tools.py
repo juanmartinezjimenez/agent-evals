@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from agent_evals.models import Suite
-from agent_evals.report import to_json
+from agent_evals.report import to_json, to_markdown
 from agent_evals.runner import run_suite
 from tests.fakes import ScriptedProvider, ToolCall
 
@@ -102,3 +102,16 @@ def test_suites_without_tools_offer_none() -> None:
     provider = ScriptedProvider({"a": "y"})
     run_suite(suite, provider)
     assert provider.seen_tools == [()]
+
+
+def test_the_markdown_failures_show_the_call() -> None:
+    provider = ScriptedProvider(
+        {
+            "add": CALL,
+            "thanks": ToolCall("tasks_add", {"title": "x"}),
+            "pasted": "Lentils soup.",
+        }
+    )
+    markdown = to_markdown(run_suite(SUITE, provider))
+    assert "| Case | Tool call | Reason |" in markdown
+    assert "| `thanks` | `tasks_add` | expected no tool call, got a call to tasks_add |" in markdown

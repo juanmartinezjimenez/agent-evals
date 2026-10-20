@@ -96,9 +96,18 @@ def to_markdown(run: RunResult) -> str:
         lines.append("")
 
     failures = [r for r in run.results if not r.passed]
-    if failures:
+    if failures and any(r.tool_call is not None for r in run.results):
+        # Tool suites (ADR 0008): show which tool the model actually called.
+        lines += ["### Failures", "", "| Case | Tool call | Reason |", "| --- | --- | --- |"]
+        lines += [
+            f"| `{r.case_id}` | {f'`{r.tool_call.name}`' if r.tool_call else '—'} "
+            f"| {_escape(r.reason)} |"
+            for r in failures
+        ]
+        lines.append("")
+    elif failures:
         lines += ["### Failures", "", "| Case | Reason |", "| --- | --- |"]
-        lines += [f"| `{r.case_id}` | {r.reason.replace('|', '\\|')} |" for r in failures]
+        lines += [f"| `{r.case_id}` | {_escape(r.reason)} |" for r in failures]
         lines.append("")
     return "\n".join(lines)
 
