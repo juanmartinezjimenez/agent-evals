@@ -115,8 +115,15 @@ def _execute(args: argparse.Namespace) -> RunResult:
             source = (provider.recorded_provider, provider.recorded_model)
         else:
             source = (provider.name, run.model)
-        outputs = {r.case_id: r.output for r in run.results if not r.error}
-        write_recording(args.record, suite, outputs, provider=source[0], model=source[1])
+        recorded = [r for r in run.results if not r.error]
+        write_recording(
+            args.record,
+            suite,
+            {r.case_id: r.output for r in recorded},
+            tool_calls={r.case_id: r.tool_call for r in recorded},
+            provider=source[0],
+            model=source[1],
+        )
     return run
 
 

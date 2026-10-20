@@ -315,8 +315,13 @@ def test_old_flat_recordings_replay_with_a_warning(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "version: 3\ncases: {}\n",
+        "version: 4\ncases: {}\n",
         "version: 2\ncases:\n  a: {output: hi}\n",
+        # A tool_call only exists in version 3, and it needs name and arguments.
+        "version: 2\ncases:\n  a: {fingerprint: 'sha256:0123456789abcdef', output: hi,"
+        " tool_call: null}\n",
+        "version: 3\ncases:\n  a: {fingerprint: 'sha256:0123456789abcdef', output: hi,"
+        " tool_call: {name: x}}\n",
         "version: 2\ncases:\n  a: {fingerprint: 'md5:123', output: hi}\n",
         "version: 2\ncases: {}\nextra: field\n",
     ],
