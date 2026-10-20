@@ -6,8 +6,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import jsonschema
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _Strict(BaseModel):
@@ -95,6 +96,33 @@ class Case(_Strict):
         return (Turn(role="user", content=self.input or ""),)
 
 
+class Tool(_Strict):
+    """A tool the model may call, declared as JSON Schema (ADR 0008).
+
+    The name pattern is the intersection of what OpenAI (64 characters) and
+    Anthropic (128) accept.
+    """
+
+    name: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    description: str = ""
+    input_schema: dict[str, Any]
+
+    @field_validator("input_schema")
+    @classmethod
+    def _valid_schema(cls, schema: dict[str, Any]) -> dict[str, Any]:
+        if schema.get("type") != "object":
+            raise ValueError("input_schema must be a JSON Schema with type: object")
+        try:
+            jsonschema.Draft202012Validator.check_schema(schema)
+        except jsonschema.SchemaError as exc:
+            raise ValueError(f"input_schema is not a valid JSON Schema: {exc.message}") from None
+        return schema
+
+
+def _duplicates(values: list[str]) -> list[str]:
+    return sorted(value for value, n in Counter(values).items() if n > 1)
+
+
 class Suite(_Strict):
     """A named set of cases with a shared system prompt and pass threshold."""
 
@@ -102,15 +130,21 @@ class Suite(_Strict):
     description: str = ""
     system: str = ""
     threshold: float = Field(default=1.0, ge=0.0, le=1.0)
+    tools: list[Tool] = Field(default_factory=list)
     cases: list[Case] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _unique_ids(self) -> Suite:
-        counts = Counter(c.id for c in self.cases)
-        duplicates = sorted(case_id for case_id, n in counts.items() if n > 1)
+        duplicates = _duplicates([c.id for c in self.cases])
         if duplicates:
             raise ValueError(f"duplicate case ids: {duplicates}")
+        duplicate_tools = _duplicates([t.name for t in self.tools])
+        if duplicate_tools:
+            raise ValueError(f"duplicate tool names: {duplicate_tools}")
         return self
+
+    def tool_named(self, name: str) -> Tool | None:
+        return next((tool for tool in self.tools if tool.name == name), None)
 
     @classmethod
     def from_yaml(cls, path: Path) -> Suite:
