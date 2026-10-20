@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from statistics import mean, quantiles
 
-from agent_evals.models import Suite
+from agent_evals.models import Suite, ToolCall
 from agent_evals.pricing import Pricing
 from agent_evals.providers import STALE_REASON, Provider, ProviderCallError, StaleRecordingError
 from agent_evals.scorers import Answer, score_case
@@ -25,6 +25,7 @@ class CaseResult:
     cost_usd: float | None = None
     error: bool = False
     stale: bool = False
+    tool_call: ToolCall | None = None
 
     @property
     def measured(self) -> bool:
@@ -128,7 +129,7 @@ def run_suite(
     for case in suite.cases:
         tags = tuple(case.tags)
         try:
-            completion = provider.complete(suite.system, case)
+            completion = provider.complete(suite.system, case, suite.tools)
         except ProviderCallError as exc:
             results.append(
                 CaseResult(
@@ -156,13 +157,15 @@ def run_suite(
             )
             continue
 
-        verdict = score_case(case.expectations, Answer(completion.text), suite.tools)
+        answer = Answer(completion.text, completion.tool_call)
+        verdict = score_case(case.expectations, answer, suite.tools)
         results.append(
             CaseResult(
                 case_id=case.id,
                 passed=verdict.passed,
                 reason=verdict.reason,
                 output=completion.text,
+                tool_call=completion.tool_call,
                 latency_ms=completion.latency_ms,
                 tags=tags,
                 input_tokens=completion.input_tokens,

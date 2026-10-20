@@ -13,12 +13,13 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_evals.models import Case, Suite
+from agent_evals.models import Case, Suite, Tool
 from agent_evals.providers.base import (
     Completion,
     MissingRecordingError,
@@ -122,7 +123,7 @@ class ReplayProvider:
             raise ValueError(f"{path}: expected a mapping of case id -> output string")
         return cls({str(k): v for k, v in data.items()})
 
-    def complete(self, system: str, case: Case) -> Completion:
+    def complete(self, system: str, case: Case, tools: Sequence[Tool] = ()) -> Completion:
         start = time.perf_counter()
         try:
             text = self._outputs[case.id]

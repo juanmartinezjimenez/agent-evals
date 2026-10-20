@@ -10,9 +10,10 @@ only text blocks are scored.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any
 
-from agent_evals.models import Case
+from agent_evals.models import Case, Tool
 from agent_evals.providers.base import (
     Completion,
     ProviderSetupError,
@@ -50,7 +51,7 @@ class AnthropicProvider:
                 raise ProviderSetupError(f"cannot create Anthropic client: {exc}") from exc
         self._client = client
 
-    def complete(self, system: str, case: Case) -> Completion:
+    def complete(self, system: str, case: Case, tools: Sequence[Tool] = ()) -> Completion:
         params: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self._max_tokens,
