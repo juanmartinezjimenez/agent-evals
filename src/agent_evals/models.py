@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -49,7 +51,79 @@ class JsonSchema(_Strict):
     fields: dict[str, Any] = Field(default_factory=dict)
 
 
-Expectation = Annotated[ExactMatch | Contains | Regex | JsonSchema, Field(discriminator="type")]
+def _check_matchers(value: Any, where: str = "arguments") -> None:
+    """`{$regex: pattern}` is the only matcher; it must be alone and compile."""
+    if isinstance(value, dict):
+        if "$regex" in value:
+            if len(value) != 1 or not isinstance(value["$regex"], str):
+                raise ValueError(f"{where}: $regex must be the only key, with a string pattern")
+            try:
+                re.compile(value["$regex"])
+            except re.error as exc:
+                raise ValueError(f"{where}: invalid $regex: {exc}") from None
+            return
+        for key, item in value.items():
+            _check_matchers(item, f"{where}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _check_matchers(item, f"{where}[{index}]")
+
+
+class ToolCallMatch(_Strict):
+    """The first tool call must be to `tool`, with matching `arguments` (ADR 0008)."""
+
+    type: Literal["tool_call"]
+    tool: str
+    arguments: dict[str, Any] | None = None
+    match: Literal["subset", "exact"] = "subset"
+
+    @field_validator("arguments")
+    @classmethod
+    def _valid_matchers(cls, arguments: dict[str, Any] | None) -> dict[str, Any] | None:
+        _check_matchers(arguments)
+        return arguments
+
+
+class NoToolCall(_Strict):
+    """The model must answer without calling any tool."""
+
+    type: Literal["no_tool_call"]
+
+
+class NoCallTo(_Strict):
+    """The model must not call any of `tools`; text or another tool is fine."""
+
+    type: Literal["no_call_to"]
+    tools: list[str] = Field(min_length=1)
+
+
+TextExpectation = ExactMatch | Contains | Regex | JsonSchema
+ToolExpectation = ToolCallMatch | NoToolCall | NoCallTo
+TOOL_EXPECTATIONS = (ToolCallMatch, NoToolCall, NoCallTo)
+Expectation = Annotated[TextExpectation | ToolExpectation, Field(discriminator="type")]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    """A tool call the model asked for. It is scored, never executed."""
+
+    name: str
+    arguments: Any  # a JSON object when the model produced valid JSON
+
+
+def _unknown_argument_keys(arguments: Any, schema: dict[str, Any], where: str) -> list[str]:
+    """Expected argument keys that the tool's schema does not declare."""
+    if not isinstance(arguments, dict) or "$regex" in arguments:
+        return []
+    properties = schema.get("properties", {})
+    unknown: list[str] = []
+    for key, value in arguments.items():
+        path = f"{where}.{key}" if where else key
+        if key not in properties:
+            unknown.append(path)
+        elif isinstance(properties[key], dict):
+            unknown += _unknown_argument_keys(value, properties[key], path)
+    return unknown
 
 
 class Turn(_Strict):
@@ -146,6 +220,33 @@ class Suite(_Strict):
         duplicate_tools = _duplicates([t.name for t in self.tools])
         if duplicate_tools:
             raise ValueError(f"duplicate tool names: {duplicate_tools}")
+        return self
+
+    @model_validator(mode="after")
+    def _valid_tool_expectations(self) -> Suite:
+        """ADR 0008 rules 3-5: known tools, known argument keys, no contradictions."""
+        for case in self.cases:
+            kinds = [type(e) for e in case.expectations]
+            if NoToolCall in kinds and ToolCallMatch in kinds:
+                raise ValueError(f"case {case.id}: no_tool_call and tool_call can never both pass")
+            for expect in case.expectations:
+                if not isinstance(expect, TOOL_EXPECTATIONS):
+                    continue
+                if not self.tools:
+                    raise ValueError(f"case {case.id}: tool expectations need tools in the suite")
+                if isinstance(expect, ToolCallMatch):
+                    tool = self.tool_named(expect.tool)
+                    if tool is None:
+                        raise ValueError(f"case {case.id}: unknown tool {expect.tool!r}")
+                    unknown = _unknown_argument_keys(expect.arguments, tool.input_schema, "")
+                    if unknown:
+                        raise ValueError(
+                            f"case {case.id}: {expect.tool} has no argument {', '.join(unknown)}"
+                        )
+                elif isinstance(expect, NoCallTo):
+                    missing = [name for name in expect.tools if self.tool_named(name) is None]
+                    if missing:
+                        raise ValueError(f"case {case.id}: unknown tools {missing}")
         return self
 
     def tool_named(self, name: str) -> Tool | None:

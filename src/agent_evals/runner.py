@@ -156,7 +156,7 @@ def run_suite(
             )
             continue
 
-        verdict = score_case(case.expectations, Answer(completion.text))
+        verdict = score_case(case.expectations, Answer(completion.text), suite.tools)
         results.append(
             CaseResult(
                 case_id=case.id,

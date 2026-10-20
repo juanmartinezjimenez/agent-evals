@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agent_evals.models import Suite
+from agent_evals.models import Suite, ToolCallMatch
 
 TASKS_ADD: dict[str, Any] = {
     "name": "tasks_add",
@@ -79,3 +79,73 @@ def test_expect_can_be_a_list() -> None:
 def test_an_empty_expect_list_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Suite.model_validate(_suite([], {"id": "a", "input": "hi", "expect": []}))
+
+
+def _case(expect: Any) -> dict[str, Any]:
+    return {"id": "c", "input": "Remind me to renew the library card.", "expect": expect}
+
+
+def test_tool_expectations_load() -> None:
+    suite = Suite.model_validate(
+        _suite(
+            [TASKS_ADD],
+            _case(
+                [
+                    {
+                        "type": "tool_call",
+                        "tool": "tasks_add",
+                        "arguments": {"title": {"$regex": "(?i)library"}, "tags": ["personal"]},
+                    },
+                    {"type": "contains", "values": ["library"]},
+                ]
+            ),
+        )
+    )
+    first = suite.cases[0].expectations[0]
+    assert isinstance(first, ToolCallMatch)
+    assert (first.tool, first.match) == ("tasks_add", "subset")
+
+
+@pytest.mark.parametrize(
+    ("tools", "expect", "message"),
+    [
+        ([], {"type": "no_tool_call"}, "tool expectations need tools in the suite"),
+        ([TASKS_ADD], {"type": "tool_call", "tool": "notes_write"}, "unknown tool 'notes_write'"),
+        ([TASKS_ADD], {"type": "no_call_to", "tools": ["tasks_add", "nope"]}, "unknown tools"),
+        (
+            [TASKS_ADD],
+            {"type": "tool_call", "tool": "tasks_add", "arguments": {"titel": "x"}},
+            "tasks_add has no argument titel",
+        ),
+        (
+            [TASKS_ADD],
+            [{"type": "no_tool_call"}, {"type": "tool_call", "tool": "tasks_add"}],
+            "can never both pass",
+        ),
+        (
+            [TASKS_ADD],
+            {"type": "tool_call", "tool": "tasks_add", "arguments": {"title": {"$regex": "("}}},
+            r"invalid \$regex",
+        ),
+        (
+            [TASKS_ADD],
+            {
+                "type": "tool_call",
+                "tool": "tasks_add",
+                "arguments": {"title": {"$regex": "x", "other": 1}},
+            },
+            "must be the only key",
+        ),
+        ([TASKS_ADD], {"type": "no_call_to", "tools": []}, "at least 1"),
+        (
+            [TASKS_ADD],
+            {"type": "tool_call", "tool": "tasks_add", "match": "fuzzy"},
+            "subset",
+        ),
+    ],
+)
+def test_invalid_tool_expectations_are_rejected(
+    tools: list[dict[str, Any]], expect: Any, message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Suite.model_validate(_suite(tools, _case(expect)))
