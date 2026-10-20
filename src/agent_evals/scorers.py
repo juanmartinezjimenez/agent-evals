@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import jsonschema
@@ -15,6 +16,22 @@ from agent_evals.models import Contains, ExactMatch, Expectation, JsonSchema, Re
 class Score:
     passed: bool
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    """What the model returned for a case."""
+
+    text: str
+
+
+def score_case(expectations: Sequence[Expectation], answer: Answer) -> Score:
+    """Every expectation must pass; the reason lists the ones that failed."""
+    scores = [score(expect, answer.text) for expect in expectations]
+    failed = [s.reason for s in scores if not s.passed]
+    if failed:
+        return Score(False, "; ".join(failed))
+    return Score(True, "; ".join(s.reason for s in scores))
 
 
 def _normalise(text: str, case_sensitive: bool) -> str:

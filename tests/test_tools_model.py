@@ -62,3 +62,20 @@ def test_invalid_tools_are_rejected(tool: dict[str, Any], message: str) -> None:
 def test_tool_names_must_be_unique() -> None:
     with pytest.raises(ValidationError, match="duplicate tool names"):
         Suite.model_validate(_suite([TASKS_ADD, TASKS_ADD]))
+
+
+def test_expect_can_be_a_list() -> None:
+    case = {
+        "id": "a",
+        "input": "hi",
+        "expect": [{"type": "contains", "values": ["hi"]}, {"type": "regex", "pattern": "h"}],
+    }
+    suite = Suite.model_validate(_suite([], case))
+    assert [e.type for e in suite.cases[0].expectations] == ["contains", "regex"]
+    single = Suite.model_validate(_suite([]))
+    assert [e.type for e in single.cases[0].expectations] == ["contains"]
+
+
+def test_an_empty_expect_list_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Suite.model_validate(_suite([], {"id": "a", "input": "hi", "expect": []}))

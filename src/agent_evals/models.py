@@ -70,8 +70,13 @@ class Case(_Strict):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     input: str | None = Field(default=None, min_length=1)
     turns: list[Turn] | None = Field(default=None, min_length=1)
-    expect: Expectation
+    # One expectation, or a list where every one must pass (ADR 0008).
+    expect: Expectation | Annotated[list[Expectation], Field(min_length=1)]
     tags: list[str] = Field(default_factory=list)
+
+    @property
+    def expectations(self) -> tuple[Expectation, ...]:
+        return tuple(self.expect) if isinstance(self.expect, list) else (self.expect,)
 
     @model_validator(mode="after")
     def _valid_conversation(self) -> Case:
