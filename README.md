@@ -60,6 +60,29 @@ cases:
 Every failure says why, e.g. `wrong field values: {'name': 'Irene'}` or
 `schema error at intent: 'refund' is not one of [...]`.
 
+### Multi-turn cases
+
+To test a conversation, give `turns` instead of `input`. Earlier turns are
+written by hand; the model answers only the last user turn, and only that answer
+is scored ([ADR 0006](docs/adr/0006-multi-turn-cases-with-scripted-history.md)).
+Runs stay deterministic, replayable and comparable by case id.
+
+```yaml
+- id: correction-wins
+  turns:
+    - role: user
+      content: I'd like to book a puncture repair for Marc Soler on Tuesday at 10:00.
+    - role: assistant
+      content: Done, Marc. You're booked for Tuesday at 10:00.
+    - role: user
+      content: Sorry, I meant Thursday at 17:30. What time is my booking now?
+  expect: { type: regex, pattern: "(?i)thursday.*17:30" }
+```
+
+Turns start with `user`, alternate with `assistant` and end with `user`; a case
+has either `input` or `turns`, never both. Earlier turns are sent on every call,
+so they count as input tokens and cost.
+
 ## Quickstart
 
 Requires [uv](https://docs.astral.sh/uv/).
@@ -135,14 +158,15 @@ Use it to compare a prompt change against `main`, or two models on the same suit
 
 ## Examples
 
-Both suites use synthetic data only.
+All suites use synthetic data only.
 
 | Suite | Task | Cases | Recorded result |
 | --- | --- | --- | --- |
 | [ticket-classification](examples/ticket-classification/) | Route support tickets to one of four queues | 10 | 9/10, fails on an ambiguous refund-vs-shipping ticket |
 | [contact-extraction](examples/contact-extraction/) | Extract name, email and intent as JSON | 5 | 4/5, picks the wrong person when two are mentioned |
+| [workshop-booking](examples/workshop-booking/) | Book bike repair slots over a conversation (multi-turn) | 6 | 5/6, confirms a slot that does not exist |
 
-CI runs both on every push and publishes the Markdown report in the job summary.
+CI runs all of them on every push and publishes the Markdown report in the job summary.
 
 ## Technical decisions
 
@@ -150,6 +174,7 @@ CI runs both on every push and publishes the Markdown report in the job summary.
 - [ADR 0003](docs/adr/0003-deterministic-scorers-first.md): deterministic scorers before LLM-as-judge.
 - [ADR 0004](docs/adr/0004-prices-are-user-supplied.md): token prices are supplied by the user, not hard-coded.
 - [ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md): `compare` fails on case regressions, not on metric deltas.
+- [ADR 0006](docs/adr/0006-multi-turn-cases-with-scripted-history.md): multi-turn cases script the history and score only the last answer.
 
 ## Roadmap
 
