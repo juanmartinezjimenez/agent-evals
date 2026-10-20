@@ -112,14 +112,17 @@ outputs belong to the current suite, which is the author's responsibility. The
 example recordings of this repository are upgraded this way, with no API calls.
 
 **In the PR comment.** Stale cases go first, above the metrics, because the rest
-of the comment cannot be trusted until they are fixed:
+of the comment cannot be trusted until they are fixed. Notices use GitHub's
+alert syntax (`> [!WARNING]`, `> [!NOTE]`), which GitHub renders as coloured
+callouts and other Markdown viewers show as plain blockquotes:
 
 ```markdown
 ## workshop-booking: base vs head
 
 **❌ FAIL** · 0 regressions, 0 fixes · ⚠️ 2 stale recordings · `replay` → `replay`
 
-> ⚠️ **2 cases replayed answers recorded for a different prompt or input.**
+> [!WARNING]
+> **2 cases replayed answers recorded for a different prompt or input.**
 > Their results say nothing about the current suite. Re-record them with a live run
 > (`agent-evals run SUITE --provider ... --model ... --record RECORDING`) and push the recording.
 >
@@ -127,9 +130,14 @@ of the comment cannot be trusted until they are fixed:
 > - `correction-wins`
 ```
 
-A version 1 recording adds a one-line notice under the header
-(`ℹ️ recording without fingerprints: changes to prompts or inputs are not
-detected`), and the action step fails when the head run has stale cases.
+A version 1 recording adds a NOTE alert under the header, one per run warning:
+
+```markdown
+> [!NOTE]
+> recording has no fingerprints; changes to prompts or inputs cannot be detected; re-record with --record
+```
+
+The action step fails when the head run has stale cases.
 
 ### Composite, not JavaScript
 

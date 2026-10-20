@@ -198,9 +198,8 @@ def test_stale_replay_exits_two_and_still_writes_reports(
     data = json.loads(json_out.read_text(encoding="utf-8"))
     assert (data["stale"], data["ok"]) == (1, False)
     assert [r["case_id"] for r in data["results"] if r["stale"]] == ["delete-account"]
-    assert "replayed answers recorded for a different prompt or input" in md_out.read_text(
-        encoding="utf-8"
-    )
+    markdown = md_out.read_text(encoding="utf-8")
+    assert "> [!WARNING]\n> **1 case replayed answers recorded for a different" in markdown
 
 
 def test_old_recording_prints_a_warning(
@@ -215,8 +214,10 @@ def test_old_recording_prints_a_warning(
     text = (folder / "suite.yaml").read_text(encoding="utf-8")
     suite.write_text(text.split("  - id: app-crash")[0], encoding="utf-8")  # first two cases only
 
-    assert main(["run", str(suite), "--replay", str(old)]) == EXIT_OK
+    md_out = tmp_path / "run.md"
+    assert main(["run", str(suite), "--replay", str(old), "--markdown", str(md_out)]) == EXIT_OK
     assert "warning: recording has no fingerprints" in capsys.readouterr().err
+    assert "> [!NOTE]\n> recording has no fingerprints" in md_out.read_text(encoding="utf-8")
 
 
 def test_compare_fails_on_a_stale_head_without_counting_a_regression(
@@ -235,4 +236,7 @@ def test_compare_fails_on_a_stale_head_without_counting_a_regression(
     assert "⚠ delete-account: stale recording" in out
     markdown = md_out.read_text(encoding="utf-8")
     assert "⚠️ 1 stale recording" in markdown
-    assert "- `delete-account`" in markdown
+    assert "> [!WARNING]" in markdown
+    assert "> - `delete-account`" in markdown
+    # The alert goes above the metrics table, which it invalidates.
+    assert markdown.index("> [!WARNING]") < markdown.index("| Metric |")
