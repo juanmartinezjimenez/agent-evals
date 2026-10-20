@@ -1,6 +1,6 @@
 [project]
 name = "agent-evals"
-version = "0.2.0"
+version = "0.3.0"
 description = "Evaluate LLM agents against versioned test cases: metrics, model comparison and CI gating."
 readme = "README.md"
 license = "MIT"

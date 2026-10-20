@@ -6,6 +6,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
 ### Added
 
 - `agent-evals compare BASE HEAD`: compares two `run --json` reports case by case and lists regressions, fixes, added and removed cases with the change in pass rate, latency and cost. Exits 1 when any case that passed now fails ([ADR 0005](docs/adr/0005-compare-gates-on-case-regressions.md)).
