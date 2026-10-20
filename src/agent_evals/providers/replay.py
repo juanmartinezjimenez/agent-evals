@@ -33,13 +33,28 @@ NO_FINGERPRINTS_WARNING = (
 )
 
 
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def fingerprint(system: str, case: Case) -> str:
     """Hash of exactly what a provider sends for this case: system prompt and messages.
+
+    The same on every platform: line breaks are normalized to `\\n` (so a suite
+    saved with CRLF on Windows hashes like the LF copy in CI), then the payload is
+    serialized as canonical JSON (sorted keys, fixed separators, UTF-8, no ASCII
+    escaping) and hashed with SHA-256.
 
     `expect` and `tags` are left out on purpose: changing what counts as correct
     re-scores the same answer and does not need a new recording.
     """
-    payload = {"system": system, "messages": chat_messages(case)}
+    payload = {
+        "system": _normalize_newlines(system),
+        "messages": [
+            {"role": m["role"], "content": _normalize_newlines(m["content"])}
+            for m in chat_messages(case)
+        ],
+    }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
