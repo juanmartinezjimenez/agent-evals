@@ -6,6 +6,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
 ### Added
 
 - GitHub Action (`action.yml`, composite): replays a suite on the pull request and on its base commit, compares them, writes the job summary and outputs (`regressions`, `fixes`, `stale`, `report`), and creates or updates one comment per suite. Runs only on `pull_request` with `contents: read` and `pull-requests: write`; skips the comment on fork PRs; needs no API key ([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)).
