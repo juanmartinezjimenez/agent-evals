@@ -143,8 +143,10 @@ The action step fails when the head run has stale cases.
 
 A composite action is a list of shell steps. The tool is a Python CLI installed
 with uv, so every step is a command the user could run locally: install uv,
-`uv tool install` agent-evals from `${{ github.action_path }}`, check out the
-base, run, compare, comment. A JavaScript action would need Node, a bundled
+check out the base, and run agent-evals from `${{ github.action_path }}` with
+`uv run --project ... --locked`, so the action uses exactly the dependencies in
+its own lockfile. The logic (replay, compare, comment) is a Python module with
+its own tests; `action.yml` only wires inputs to it. A JavaScript action would need Node, a bundled
 `dist/` committed to the repository and kept in sync, and it would still have to
 call the Python CLI. Composite keeps one language and nothing to bundle.
 
@@ -176,10 +178,12 @@ commit it was computed for and a link to the run, and is cut before GitHub's
   to build or run code from the pull request, which is exactly what an eval run
   does. The action refuses to run under that event.
 - **Minimum token permissions:** `contents: read` for the checkouts and
-  `pull-requests: write` for the comment. The comment endpoints accept either
-  Issues or Pull requests write; the implementation will confirm the accepted
-  permission with the `X-Accepted-GitHub-Permissions` response header in its
-  first test run. No other scope is needed.
+  `pull-requests: write` for the comment. Confirmed on the action's first run in
+  this repository: GitHub answered the comment request with
+  `X-Accepted-GitHub-Permissions: issues=write; pull_requests=write` (either one
+  is enough), and the comment was created by a job granted only
+  `pull-requests: write`. The action logs this header on every comment. No other
+  scope is needed.
 - **PRs from forks:** GitHub gives them a read-only token and no secrets. The
   action still runs both suites, writes the comparison to the job summary and
   sets the exit code; it detects the fork and skips the comment with a notice

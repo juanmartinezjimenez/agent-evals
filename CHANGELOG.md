@@ -8,6 +8,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- GitHub Action (`action.yml`, composite): replays a suite on the pull request and on its base commit, compares them, writes the job summary and outputs (`regressions`, `fixes`, `stale`, `report`), and creates or updates one comment per suite. Runs only on `pull_request` with `contents: read` and `pull-requests: write`; skips the comment on fork PRs; needs no API key ([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)).
+- CI runs the action on the example suites of every pull request.
+
 - Stale recording detection ([ADR 0007](docs/adr/0007-pr-comment-action-regenerates-the-base.md)): `--record` writes recording format 2 with a fingerprint of each case's system prompt and input. A replayed case whose prompt or input changed fails as stale; `run` exits 2 after writing its reports, and the JSON report has `stale` per case and per run.
 - `--record` together with `--replay` upgrades a recording to format 2 without calling any API, and refuses when a case is stale.
 - `compare` lists stale head cases apart from regressions and fixes, and fails when there is any.
